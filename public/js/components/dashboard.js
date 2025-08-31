@@ -4,7 +4,14 @@
 
 class Dashboard {
   constructor() {
-    this.connections = [];
+    this.instanceId = Math.random().toString(36).substring(2, 8);
+    console.log(`Dashboard instance created: ${this.instanceId}`);
+
+    this.connectionsBody = document.getElementById('connections-body');
+    this.autoRefreshToggle = document.getElementById('autoRefreshToggle');
+    this.lastRefreshInfo = document.getElementById('lastRefreshInfo');
+    this.nextRefreshInfo = document.getElementById('nextRefreshInfo');
+    
     this.filters = {
       protocol: '',
       process: '',
@@ -16,9 +23,15 @@ class Dashboard {
     this.expandedConnections = this.loadExpandedConnections(); // Load from localStorage
     
     // Auto-refresh properties
-    this.autoRefreshEnabled = false;
-    this.autoRefreshInterval = 10; // seconds
-    this.autoRefreshTimer = null;
+    // Auto-refresh simple state
+  this.autoRefresh = {
+      enabled: localStorage.getItem('glassnet-auto-refresh-enabled') === 'true',
+      interval: parseInt(localStorage.getItem('glassnet-auto-refresh-interval') || '10'),
+      timer: null
+    };
+  this.lastRefresh = null;
+  this.nextRefreshAt = null;
+  this.metaTimer = null;
     
     this.popularPorts = {
       'Web Servers': [80, 443, 8080, 8443, 3000, 8000],
@@ -40,6 +53,18 @@ class Dashboard {
     this.setupEventListeners();
     this.loadInitialData();
     this.setupWebSocketListeners();
+    
+    // Auto-refresh toggle initialization
+    this.autoRefreshToggle.checked = this.autoRefresh.enabled;
+    this.autoRefreshToggle.addEventListener('change', (e) => {
+      this.setAutoRefreshEnabled(e.target.checked);
+    });
+
+    if (this.autoRefresh.enabled) {
+        this.scheduleAutoRefresh();
+    } else {
+        this.updateRefreshMeta();
+    }
   }
 
   /**
@@ -105,19 +130,19 @@ class Dashboard {
 
     // Auto-refresh controls
     document.getElementById('autoRefreshToggle').addEventListener('click', () => {
-      this.toggleAutoRefresh();
+      this.setAutoRefreshEnabled(!this.autoRefresh.enabled);
     });
 
     document.getElementById('refreshInterval').addEventListener('change', (e) => {
-      this.autoRefreshInterval = parseInt(e.target.value);
-      if (this.autoRefreshEnabled) {
-        this.restartAutoRefresh();
-      }
+      this.autoRefresh.interval = parseInt(e.target.value);
+      localStorage.setItem('glassnet-auto-refresh-interval', this.autoRefresh.interval.toString());
+      if (this.autoRefresh.enabled) this.scheduleAutoRefresh(true);
+      this.updateRefreshButtonText();
     });
 
     // Cleanup auto-refresh on page unload
     window.addEventListener('beforeunload', () => {
-      this.stopAutoRefresh();
+      this.clearAutoRefreshTimer();
     });
 
     // Column resizing
@@ -129,7 +154,10 @@ class Dashboard {
    */
   setupWebSocketListeners() {
     window.wsClient.on('connections', (newConnections) => {
-      this.addNewConnections(newConnections);
+      // Only update connections if auto-refresh is enabled
+      if (this.autoRefresh.enabled) {
+        this.addNewConnections(newConnections);
+      }
     });
 
     window.wsClient.on('status', (status) => {
@@ -496,7 +524,7 @@ class Dashboard {
       return `
         <tr class="${conn.isNew ? 'new-connection' : ''} ${conn.isGrouped ? 'grouped-connection' : ''} dark-row" data-connection-id="${connectionId}">
           <td>
-            <button class="expand-btn" onclick="dashboard.toggleConnectionDetails('${connectionId}', ${index})" 
+            <button class="expand-btn" onclick="window.dashboard.toggleConnectionDetails('${connectionId}', ${index})" 
                     aria-label="Expand connection details" 
                     aria-expanded="${isExpanded}"
                     title="${isExpanded ? 'Hide' : 'Show'} connection details">
@@ -549,7 +577,7 @@ class Dashboard {
     tbody.innerHTML = `
       <tr>
         <td colspan="9" class="loading">
-          Failed to load connections. <button onclick="dashboard.loadConnections()" class="btn btn-primary">Retry</button>
+          Failed to load connections. <button onclick="window.dashboard.loadConnections()" class="btn btn-primary">Retry</button>
         </td>
       </tr>
     `;
@@ -645,7 +673,7 @@ class Dashboard {
           <div class="detail-item">
             <span class="detail-label">Remote Ports:</span>
             <span class="detail-value">
-              ${conn.remotePortsList.length > 0 ? 
+              ${conn.remotePortsList && conn.remotePortsList.length > 0 ? 
                 conn.remotePortsList.map(port => `<span class="port-badge">${port}</span>`).join(' ') : 
                 'None'}
             </span>
@@ -1274,64 +1302,99 @@ class Dashboard {
   /**
    * Toggle auto-refresh functionality
    */
-  toggleAutoRefresh() {
-    this.autoRefreshEnabled = !this.autoRefreshEnabled;
+  setAutoRefreshEnabled(enabled) {
+    console.log(`[${this.instanceId}] setAutoRefreshEnabled called with: ${enabled}`);
+    this.autoRefresh.enabled = enabled;
+    localStorage.setItem('glassnet-auto-refresh-enabled', enabled ? 'true' : 'false');
+    
     const toggleBtn = document.getElementById('autoRefreshToggle');
+    if (toggleBtn) {
+      if (enabled) {
+        toggleBtn.textContent = '⏸️ Disable';
+        toggleBtn.classList.remove('btn-secondary');
+        toggleBtn.classList.add('btn-primary');
+      } else {
+        toggleBtn.textContent = '▶️ Enable';
+        toggleBtn.classList.remove('btn-primary');
+        toggleBtn.classList.add('btn-secondary');
+      }
+    }
     
-    if (this.autoRefreshEnabled) {
-      toggleBtn.textContent = '⏸️ Disable';
-      toggleBtn.classList.remove('btn-secondary');
-      toggleBtn.classList.add('btn-primary');
-      this.startAutoRefresh();
+    if (enabled) {
+      this.scheduleAutoRefresh();
     } else {
-      toggleBtn.textContent = '▶️ Enable';
-      toggleBtn.classList.remove('btn-primary');
-      toggleBtn.classList.add('btn-secondary');
-      this.stopAutoRefresh();
-    }
-  }
-
-  /**
-   * Start auto-refresh timer
-   */
-  startAutoRefresh() {
-    if (this.autoRefreshTimer) {
-      clearInterval(this.autoRefreshTimer);
+      this.clearAutoRefreshTimer();
+      this.nextRefreshAt = null;
+      this.updateRefreshMeta();
     }
     
-    this.autoRefreshTimer = setInterval(() => {
-      this.loadInitialData();
-    }, this.autoRefreshInterval * 1000);
-    
-    // Update refresh button to show auto-refresh is active
     this.updateRefreshButtonText();
   }
 
-  /**
-   * Stop auto-refresh timer
-   */
-  stopAutoRefresh() {
-    if (this.autoRefreshTimer) {
-      clearInterval(this.autoRefreshTimer);
-      this.autoRefreshTimer = null;
+  clearAutoRefreshTimer() {
+    console.log(`[${this.instanceId}] clearAutoRefreshTimer called.`);
+    if (this.autoRefresh.timer) {
+      console.log(`[${this.instanceId}] Clearing refresh timer: ${this.autoRefresh.timer}`);
+      clearInterval(this.autoRefresh.timer);
+      this.autoRefresh.timer = null;
+    } else {
+      console.log(`[${this.instanceId}] No refresh timer to clear.`);
     }
-    
-    // Update refresh button to show auto-refresh is stopped
-    this.updateRefreshButtonText();
+    if (this.metaTimer) {
+      console.log(`[${this.instanceId}] Clearing meta timer: ${this.metaTimer}`);
+      clearInterval(this.metaTimer);
+      this.metaTimer = null;
+    }
   }
 
-  /**
-   * Update refresh button text to show auto-refresh status
-   */
+  scheduleAutoRefresh() {
+    console.log(`[${this.instanceId}] scheduleAutoRefresh called.`);
+    // Clear any existing timer first
+    this.clearAutoRefreshTimer(); 
+
+    // Only schedule if auto-refresh is enabled
+    if (!this.autoRefresh.enabled) {
+      console.log(`[${this.instanceId}] Auto-refresh disabled, not scheduling timer.`);
+      this.updateRefreshMeta();
+      return;
+    }
+
+    console.log(`[${this.instanceId}] Creating new refresh timer with interval ${this.autoRefresh.interval}s.`);
+    this.autoRefresh.timer = setInterval(() => {
+      console.log(`[${this.instanceId}] Refresh timer fired.`);
+      if (this.autoRefresh.enabled) {
+        this.loadConnections();
+      }
+    }, this.autoRefresh.interval * 1000);
+
+    this.lastRefresh = Date.now();
+    this.nextRefreshAt = this.lastRefresh + (this.autoRefresh.interval * 1000);
+    this.updateRefreshMeta();
+    this.startMetaTimer();
+  }
+
+  startMetaTimer() {
+    if (this.metaTimer) return;
+    this.metaTimer = setInterval(() => {
+      if (!this.autoRefresh.enabled && !this.nextRefreshAt) {
+        clearInterval(this.metaTimer);
+        this.metaTimer = null;
+        return;
+      }
+      this.updateRefreshMeta();
+    }, 1000);
+  }
+
+  /** Update refresh button text */
   updateRefreshButtonText() {
     const refreshBtn = document.getElementById('refreshBtn');
     const hasFilters = Object.values(this.filters).some(filter => filter !== '');
     
-    if (this.autoRefreshEnabled) {
+    if (this.autoRefresh.enabled) {
       if (hasFilters) {
-        refreshBtn.textContent = `🔄 Auto-refresh (${this.autoRefreshInterval}s, filtered)`;
+        refreshBtn.textContent = `🔄 Auto-refresh (${this.autoRefresh.interval}s, filtered)`;
       } else {
-        refreshBtn.textContent = `🔄 Auto-refresh (${this.autoRefreshInterval}s)`;
+        refreshBtn.textContent = `🔄 Auto-refresh (${this.autoRefresh.interval}s)`;
       }
       refreshBtn.classList.add('btn-primary');
       refreshBtn.classList.remove('btn-secondary');
@@ -1345,14 +1408,27 @@ class Dashboard {
       }
       refreshBtn.classList.remove('btn-primary');
     }
+    this.updateRefreshMeta();
   }
 
-  /**
-   * Restart auto-refresh with new interval
-   */
-  restartAutoRefresh() {
-    this.stopAutoRefresh();
-    this.startAutoRefresh();
+  updateRefreshMeta() {
+    const lastEl = document.getElementById('lastRefreshInfo');
+    const nextEl = document.getElementById('nextRefreshInfo');
+    if (lastEl) {
+      if (this.lastRefresh) {
+        lastEl.textContent = 'Last: ' + new Date(this.lastRefresh).toLocaleTimeString();
+      } else {
+        lastEl.textContent = 'Last: --';
+      }
+    }
+    if (nextEl) {
+      if (this.autoRefresh.enabled && this.nextRefreshAt) {
+        const secs = Math.max(0, Math.round((this.nextRefreshAt - Date.now())/1000));
+        nextEl.textContent = 'Next: ' + secs + 's';
+      } else {
+        nextEl.textContent = 'Next: --';
+      }
+    }
   }
 }
 
@@ -1362,10 +1438,20 @@ class Dashboard {
 // shadowing our object. This fixes errors like
 // "window.dashboard.loadInitialData is not a function" where window.dashboard
 // was actually the DOM element, not the Dashboard instance.
+// Also guard against duplicate instantiation (e.g., via hot reload) which could
+// leave orphaned auto-refresh timers running.
+function createOrReuseDashboard() {
+  // If an old instance exists, stop its timer before replacing
+  if (window.dashboard && window.dashboard.clearAutoRefreshTimer) {
+    try { window.dashboard.clearAutoRefreshTimer(); } catch (_) {}
+  }
+  window.dashboard = new Dashboard();
+  console.log('[GlassNet] Dashboard instance ready. Auto-refresh:', window.dashboard.autoRefresh.enabled);
+}
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    window.dashboard = new Dashboard();
+    createOrReuseDashboard();
   });
 } else {
-  window.dashboard = new Dashboard();
+  createOrReuseDashboard();
 }

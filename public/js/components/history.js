@@ -144,7 +144,11 @@ class History {
       `;
       return;
     }
-    tbody.innerHTML = this.connections.map((conn, idx) => {
+
+    // Group connections by process like Dashboard does
+    const groupedConnections = this.groupConnectionsByProcess(this.connections);
+
+    tbody.innerHTML = groupedConnections.map((conn, idx) => {
       const connectionId = this.generateConnectionId(conn);
       const expanded = this.expanded.has(connectionId);
       return `
@@ -155,13 +159,20 @@ class History {
             </button>
           </td>
           <td>${this.formatDateTime(conn.timestamp)}</td>
-          <td title="${conn.process_name || 'Unknown'}">${this.truncateText(conn.process_name || 'Unknown', 20)}</td>
+          <td title="${conn.process_name || 'Unknown'}">
+            <span class="process-name">${this.truncateText(conn.process_name || 'Unknown', 20)}</span>
+            ${conn.totalConnections > 1 ? `<span class="connection-count-badge" title="${conn.totalConnections} connections">${conn.totalConnections}</span>` : ''}
+          </td>
           <td>${conn.user_name || 'Unknown'}</td>
-          <td><span class="protocol-${conn.protocol}">${conn.protocol.toUpperCase()}</span></td>
-          <td>${this.formatAddress(conn.local_address, conn.local_port)}</td>
-          <td>${this.formatAddress(conn.remote_address, conn.remote_port)}</td>
+          <td><span class="protocol-mixed">${conn.protocolsList ? conn.protocolsList.join('/') : conn.protocol.toUpperCase()}</span></td>
+          <td title="Local ports: ${conn.localPortsList ? conn.localPortsList.join(', ') : 'None'}">
+            ${this.formatPortsList(conn.localPortsList)}
+          </td>
+          <td title="Remote addresses and ports">
+            ${this.formatRemoteConnections(conn)}
+          </td>
           <td title="${this.getRemoteHostnameTooltip(conn)}">${this.formatRemoteHostname(conn)}</td>
-          <td><span class="state-${conn.state?.toLowerCase().replace(/[_\s]/g, '_')}">${conn.state || 'UNKNOWN'}</span></td>
+          <td><span class="state-mixed">${conn.statesList ? conn.statesList.join('/') : (conn.state || 'UNKNOWN')}</span></td>
         </tr>
         <tr id="history-details-${connectionId}" class="connection-details" style="display:${expanded ? 'table-row':'none'};">
           <td colspan="9">
@@ -173,7 +184,7 @@ class History {
       `;
     }).join('');
     // Load process path for expanded rows
-    this.connections.forEach(conn => {
+    groupedConnections.forEach(conn => {
       const id = this.generateConnectionId(conn);
       if (this.expanded.has(id)) {
         this.loadProcessDetails(id, conn.process_id);
@@ -357,6 +368,139 @@ class History {
     this.currentPage = 1;
   }
 
+  /**
+   * Group connections by process ID and aggregate port information
+   */
+  groupConnectionsByProcess(connections) {
+    const processGroups = new Map();
+
+    // Group connections by process ID
+    connections.forEach(conn => {
+      const pid = conn.process_id;
+      if (!processGroups.has(pid)) {
+        processGroups.set(pid, {
+          process_id: pid,
+          process_name: conn.process_name,
+          user_name: conn.user_name,
+          timestamp: conn.timestamp,
+          connections: [],
+          localPorts: new Set(),
+          remotePorts: new Set(),
+          protocols: new Set(),
+          states: new Set(),
+          remoteAddresses: new Set(),
+          totalConnections: 0
+        });
+      }
+      
+      const group = processGroups.get(pid);
+      group.connections.push(conn);
+      group.totalConnections++;
+      
+      // Collect unique ports and other info
+      if (conn.local_port && conn.local_port !== 0) {
+        group.localPorts.add(conn.local_port);
+      }
+      if (conn.remote_port && conn.remote_port !== 0) {
+        group.remotePorts.add(conn.remote_port);
+      }
+      if (conn.protocol) {
+        group.protocols.add(conn.protocol.toUpperCase());
+      }
+      if (conn.state && conn.state !== 'UNKNOWN') {
+        group.states.add(conn.state);
+      }
+      if (conn.remote_address && conn.remote_address !== '*' && conn.remote_address !== '0.0.0.0') {
+        group.remoteAddresses.add(conn.remote_address);
+      }
+      
+      // Use the most recent timestamp
+      if (new Date(conn.timestamp) > new Date(group.timestamp)) {
+        group.timestamp = conn.timestamp;
+      }
+    });
+
+    // Convert to array and format for display
+    const result = Array.from(processGroups.values()).map(group => {
+      const localPortsArray = Array.from(group.localPorts).sort((a, b) => a - b);
+      const remotePortsArray = Array.from(group.remotePorts).sort((a, b) => a - b);
+      const protocolsArray = Array.from(group.protocols);
+      const statesArray = Array.from(group.states);
+      const remoteAddressesArray = Array.from(group.remoteAddresses);
+
+      return {
+        process_id: group.process_id,
+        process_name: group.process_name,
+        user_name: group.user_name,
+        timestamp: group.timestamp,
+        
+        // Aggregated information
+        localPortsList: localPortsArray,
+        remotePortsList: remotePortsArray,
+        protocolsList: protocolsArray,
+        statesList: statesArray,
+        remoteAddressesList: remoteAddressesArray,
+        totalConnections: group.totalConnections,
+        allConnections: group.connections,
+        
+        // For display compatibility
+        protocol: protocolsArray.join('/'),
+        local_port: localPortsArray.length > 0 ? localPortsArray[0] : 0,
+        remote_port: remotePortsArray.length > 0 ? remotePortsArray[0] : 0,
+        local_address: group.connections[0]?.local_address || '*',
+        remote_address: remoteAddressesArray.length > 0 ? remoteAddressesArray[0] : '*',
+        state: statesArray.join('/'),
+        remote_hostname: group.connections[0]?.remote_hostname,
+        
+        // Mark as grouped
+        isGrouped: true,
+        duplicateCount: group.totalConnections
+      };
+    });
+
+    // Sort by timestamp (newest first)
+    return result.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }
+
+  /**
+   * Format a list of ports for display
+   */
+  formatPortsList(portsList) {
+    if (!portsList || portsList.length === 0) {
+      return '<span class="no-ports">None</span>';
+    }
+    
+    if (portsList.length <= 5) {
+      return portsList.map(port => `<span class="port-badge">${port}</span>`).join(' ');
+    }
+    
+    // Show first few ports and a count of remaining
+    const visible = portsList.slice(0, 3);
+    const remaining = portsList.length - 3;
+    return visible.map(port => `<span class="port-badge">${port}</span>`).join(' ') + 
+           ` <span class="port-more">+${remaining} more</span>`;
+  }
+
+  /**
+   * Format remote connections information
+   */
+  formatRemoteConnections(conn) {
+    if (!conn.remoteAddressesList || conn.remoteAddressesList.length === 0) {
+      return '<span class="no-connections">No remote connections</span>';
+    }
+    
+    const uniqueAddresses = conn.remoteAddressesList.length;
+    const uniqueRemotePorts = conn.remotePortsList ? conn.remotePortsList.length : 0;
+    
+    if (uniqueAddresses === 1 && uniqueRemotePorts <= 1) {
+      const address = conn.remoteAddressesList[0];
+      const port = conn.remotePortsList && conn.remotePortsList.length > 0 ? conn.remotePortsList[0] : null;
+      return `<span class="remote-connection">${address}${port ? ':' + port : ''}</span>`;
+    }
+    
+    return `<span class="remote-summary">${uniqueAddresses} address${uniqueAddresses > 1 ? 'es' : ''}, ${uniqueRemotePorts} port${uniqueRemotePorts !== 1 ? 's' : ''}</span>`;
+  }
+
   // --- New helper methods for enhanced history view ---
   parseRangeToMs(range) {
     const map = {
@@ -371,6 +515,11 @@ class History {
   }
 
   generateConnectionId(conn) {
+    // For grouped (process-level) rows, expansion should persist per PID only
+    if (conn.isGrouped && (conn.process_id || conn.process_id === 0)) {
+      return `HPID_${conn.process_id}`;
+    }
+    // For non-grouped rows, use the original logic
     return 'HID_' + btoa([
       conn.process_id || '0',
       conn.protocol || 'unknown',
@@ -383,21 +532,88 @@ class History {
   }
 
   renderDetails(conn, id) {
+    const isGrouped = conn.isGrouped;
+    
     return `
       <div class="connection-details-grid">
         <div class="detail-section">
-          <h4>Process</h4>
+          <h4>Process Information</h4>
           <div class="detail-item"><span class="detail-label">Name:</span><span class="detail-value">${conn.process_name || 'Unknown'}</span></div>
           <div class="detail-item"><span class="detail-label">PID:</span><span class="detail-value">${conn.process_id || 'N/A'}</span></div>
           <div class="detail-item" id="history-path-${id}"><span class="detail-label">Executable Path:</span><span class="detail-value loading-text">Loading...</span></div>
           <div class="detail-item" id="history-args-${id}"><span class="detail-label">Command Line:</span><span class="detail-value loading-text">Loading...</span></div>
+          ${isGrouped ? `
+          <div class="detail-item">
+            <span class="detail-label">Total Connections:</span>
+            <span class="detail-value">${conn.totalConnections}</span>
+          </div>
+          ` : ''}
         </div>
+        
         <div class="detail-section">
-          <h4>Connection</h4>
+          <h4>Connection Summary</h4>
+          ${isGrouped ? `
+          <div class="detail-item">
+            <span class="detail-label">Protocols:</span>
+            <span class="detail-value">${conn.protocolsList.map(p => `<span class="protocol-badge">${p}</span>`).join(' ')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Local Ports:</span>
+            <span class="detail-value">
+              ${conn.localPortsList.length > 0 ? 
+                conn.localPortsList.map(port => `<span class="port-badge">${port}</span>`).join(' ') : 
+                'None'}
+            </span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Remote Ports:</span>
+            <span class="detail-value">
+              ${conn.remotePortsList && conn.remotePortsList.length > 0 ? 
+                conn.remotePortsList.map(port => `<span class="port-badge">${port}</span>`).join(' ') : 
+                'None'}
+            </span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Remote Addresses:</span>
+            <span class="detail-value">
+              ${conn.remoteAddressesList.length > 0 ? 
+                conn.remoteAddressesList.map(addr => `<code>${addr}</code>`).join('<br>') : 
+                'None'}
+            </span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Connection States:</span>
+            <span class="detail-value">${conn.statesList.map(s => `<span class="state-badge">${s}</span>`).join(' ')}</span>
+          </div>
+          ` : `
           <div class="detail-item"><span class="detail-label">Local:</span><span class="detail-value">${this.formatAddress(conn.local_address, conn.local_port)}</span></div>
           <div class="detail-item"><span class="detail-label">Remote:</span><span class="detail-value">${this.formatAddress(conn.remote_address, conn.remote_port)}</span></div>
           <div class="detail-item"><span class="detail-label">Hostname:</span><span class="detail-value">${conn.remote_hostname || 'N/A'}</span></div>
           <div class="detail-item"><span class="detail-label">State:</span><span class="detail-value">${conn.state || 'UNKNOWN'}</span></div>
+          `}
+        </div>
+        
+        <div class="detail-section">
+          <h4>Additional Information</h4>
+          <div class="detail-item">
+            <span class="detail-label">Latest Activity:</span>
+            <span class="detail-value">${this.formatDateTime(conn.timestamp)}</span>
+          </div>
+          ${isGrouped && conn.allConnections ? `
+          <div class="detail-item">
+            <span class="detail-label">Connection Details:</span>
+            <span class="detail-value">
+              <div class="connection-list">
+                ${conn.allConnections.slice(0, 10).map(c => 
+                  `<div class="connection-entry">
+                    ${c.protocol.toUpperCase()} ${this.formatAddress(c.local_address, c.local_port)} → ${this.formatAddress(c.remote_address, c.remote_port)} (${c.state})
+                  </div>`
+                ).join('')}
+                ${conn.allConnections.length > 10 ? `<div class="connection-more">... and ${conn.allConnections.length - 10} more</div>` : ''}
+              </div>
+            </span>
+          </div>
+          ` : ''}
         </div>
       </div>
     `;

@@ -374,14 +374,7 @@ body {
   max-width: 40px;
 }
 
-/* Allow text wrapping on hover for better readability */
-.data-table tr:hover td {
-  white-space: normal;
-  word-wrap: break-word;
-  word-break: break-word;
-  overflow: visible;
-  text-overflow: initial;
-}
+/* Hover effects disabled - no text wrapping or layout changes on hover */
 
 .data-table tr:hover {
   background-color: var(--surface-color);
@@ -999,10 +992,7 @@ body {
   border-left: 3px solid #007bff;
 }
 
-.grouped-connection:hover {
-  background-color: #e9ecef;
-  border-left-color: #0056b3;
-}
+/* Removed grouped-connection hover effect to prevent layout changes */
 
 /* Connection list in details */
 .connection-list {
@@ -1136,6 +1126,18 @@ body {
   flex-wrap: wrap;
   gap: 1rem;
   align-items: flex-end;
+}
+
+/* Refresh meta info */
+.refresh-info {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  align-self: center;
+  min-width: 70px;
+  text-align: left;
+}
+@media (prefers-color-scheme: dark) {
+  .refresh-info { color: #64748b; }
 }
 
 .filter-group {
