@@ -6,10 +6,10 @@
   "scripts": {
     "start": "bun run src/server.js",
     "dev": "bun run --watch src/server.js",
-    "build": "bun build --compile --outfile glassnet src/server.js",
-    "build-win": "bun build --compile --target=windows-x64 --outfile glassnet.exe src/server.js",
-    "build-mac": "bun build --compile --target=darwin-x64 --outfile glassnet-mac src/server.js",
-    "build-linux": "bun build --compile --target=linux-x64 --outfile glassnet-linux src/server.js",
+    "build": "bun build --compile --outfile bin/glassnet src/server.js",
+    "build-win": "bun build --compile --target=bun-windows-x64 --outfile bin/glassnet.exe src/server.js",
+    "build-mac": "bun build --compile --target=bun-darwin-x64 --outfile bin/glassnet-mac src/server.js",
+    "build-linux": "bun build --compile --target=bun-linux-x64 --outfile bin/glassnet-linux src/server.js",
     "test": "bun test"
   },
   "dependencies": {
