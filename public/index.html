@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GlassNet - Network Monitor</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">🔍</span>
+                    <h1>GlassNet</h1>
+                    <span class="version">v1.0</span>
+                </div>
+                <div class="header-controls">
+                    <div class="status-indicator">
+                        <span id="statusIcon" class="status-icon">⚫</span>
+                        <span id="statusText">Connecting...</span>
+                    </div>
+                    <button id="clearLogsBtn" class="btn btn-danger" title="Clear all logs">
+                        🗑️ Clear Logs
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="nav-tabs">
+            <button class="tab-btn active" data-tab="dashboard">
+                📊 Dashboard
+            </button>
+            <button class="tab-btn" data-tab="history">
+                📜 History
+            </button>
+            <button class="tab-btn" data-tab="settings">
+                ⚙️ Settings
+            </button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Tab -->
+            <div id="dashboard" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">🔗</div>
+                        <div class="stat-value" id="totalConnections">0</div>
+                        <div class="stat-label">Total Connections</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📅</div>
+                        <div class="stat-value" id="connectionsToday">0</div>
+                        <div class="stat-label">Today</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⚡</div>
+                        <div class="stat-value" id="activeProcesses">0</div>
+                        <div class="stat-label">Active Processes</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💾</div>
+                        <div class="stat-value" id="dbSize">0 KB</div>
+                        <div class="stat-label">Database Size</div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="filters">
+                    <div class="filter-group">
+                        <label for="protocolFilter">Protocol:</label>
+                        <select id="protocolFilter">
+                            <option value="">All</option>
+                            <option value="tcp">TCP</option>
+                            <option value="udp">UDP</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="processFilter">Process:</label>
+                        <select id="processFilter">
+                            <option value="">All Processes</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="stateFilter">State:</label>
+                        <select id="stateFilter">
+                            <option value="">All States</option>
+                            <option value="ESTABLISHED">ESTABLISHED</option>
+                            <option value="LISTEN">LISTEN</option>
+                            <option value="TIME_WAIT">TIME_WAIT</option>
+                            <option value="CLOSE_WAIT">CLOSE_WAIT</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="portFilter">Port/Range:</label>
+                        <input type="text" id="portFilter" placeholder="80, 80-443, 80,443" title="Enter port number, range (80-443), or comma-separated ports (80,443)">
+                    </div>
+                    <div class="filter-group">
+                        <label for="portRangeFilter">Port Range:</label>
+                        <select id="portRangeFilter">
+                            <option value="">Custom Range</option>
+                            <option value="1-1023">Well-known (1-1023)</option>
+                            <option value="1024-49151">Registered (1024-49151)</option>
+                            <option value="49152-65535">Dynamic (49152-65535)</option>
+                            <option value="80-443">Web (80-443)</option>
+                            <option value="1433-5432">Database (1433-5432)</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="popularPortsFilter">Popular Ports:</label>
+                        <select id="popularPortsFilter">
+                            <option value="">Select Category</option>
+                            <option value="popular:Web Servers">Web Servers</option>
+                            <option value="popular:SSH/Remote">SSH/Remote</option>
+                            <option value="popular:Email">Email</option>
+                            <option value="popular:DNS">DNS</option>
+                            <option value="popular:Database">Database</option>
+                            <option value="popular:File Transfer">File Transfer</option>
+                            <option value="popular:VPN">VPN</option>
+                            <option value="popular:Gaming">Gaming</option>
+                        </select>
+                    </div>
+                    <button id="clearPortFilters" class="btn btn-secondary" title="Clear port filters">🗑️</button>
+                    <button id="refreshBtn" class="btn btn-primary">🔄 Refresh</button>
+                </div>
+
+                <!-- Live Connections Table -->
+                <div class="table-container">
+                    <h2>Live Network Connections</h2>
+                    <div class="table-wrapper">
+                        <table id="connectionsTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Process</th>
+                                    <th>User</th>
+                                    <th>Protocol</th>
+                                    <th>Local Address</th>
+                                    <th>Remote Address</th>
+                                    <th>State</th>
+                                </tr>
+                            </thead>
+                            <tbody id="connectionsBody">
+                                <tr>
+                                    <td colspan="7" class="loading">Loading connections...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="history" class="tab-content">
+                <div class="history-controls">
+                    <div class="filter-group">
+                        <label for="historyDays">Show last:</label>
+                        <select id="historyDays">
+                            <option value="1">24 hours</option>
+                            <option value="3" selected>3 days</option>
+                            <option value="7">7 days</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="historyProcess">Process:</label>
+                        <select id="historyProcess">
+                            <option value="">All Processes</option>
+                        </select>
+                    </div>
+                    <button id="loadHistoryBtn" class="btn btn-primary">📊 Load History</button>
+                </div>
+
+                <div class="table-container">
+                    <h2>Connection History</h2>
+                    <div class="table-wrapper">
+                        <table id="historyTable" class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Process</th>
+                                    <th>User</th>
+                                    <th>Protocol</th>
+                                    <th>Local Address</th>
+                                    <th>Remote Address</th>
+                                    <th>Hostname</th>
+                                    <th>State</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyBody">
+                                <tr>
+                                    <td colspan="8" class="empty">No history data loaded</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="prevPageBtn" class="btn btn-secondary" disabled>← Previous</button>
+                        <span id="pageInfo">Page 1</span>
+                        <button id="nextPageBtn" class="btn btn-secondary" disabled>Next →</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings" class="tab-content">
+                <div class="settings-section">
+                    <h2>Monitoring Settings</h2>
+                    <div class="setting-item">
+                        <label>Scan Interval:</label>
+                        <span id="scanInterval">5000ms</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>Protocols:</label>
+                        <span id="monitoredProtocols">TCP, UDP</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>Include Loopback:</label>
+                        <span id="includeLoopback">No</span>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h2>Database Management</h2>
+                    <div class="setting-item">
+                        <label>Retention Period:</label>
+                        <span id="retentionDays">3 days</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>Database Size:</label>
+                        <span id="settingsDbSize">Calculating...</span>
+                    </div>
+                    <div class="cleanup-actions">
+                        <button id="cleanupOldBtn" class="btn btn-warning">
+                            🧹 Clean Old Records
+                        </button>
+                        <button id="clearAllBtn" class="btn btn-danger">
+                            🗑️ Clear All Data
+                        </button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h2>System Information</h2>
+                    <div class="setting-item">
+                        <label>Platform:</label>
+                        <span id="platform">Unknown</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>Connected Clients:</label>
+                        <span id="connectedClients">0</span>
+                    </div>
+                    <div class="setting-item">
+                        <label>Server Uptime:</label>
+                        <span id="serverUptime">Calculating...</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Toast Notifications -->
+        <div id="toastContainer" class="toast-container"></div>
+
+        <!-- Loading Overlay -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="spinner"></div>
+            <div class="loading-text">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/websocket.js"></script>
+    <script src="/js/components/dashboard.js"></script>
+    <script src="/js/components/history.js"></script>
+    <script src="/js/components/settings.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

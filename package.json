@@ -1,0 +1,32 @@
+{
+  "name": "glassnet",
+  "version": "1.0.0",
+  "description": "Cross-platform network monitoring application",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "bun run src/server.js",
+    "dev": "bun run --watch src/server.js",
+    "build": "bun build --compile --outfile glassnet src/server.js",
+    "build-win": "bun build --compile --target=windows-x64 --outfile glassnet.exe src/server.js",
+    "build-mac": "bun build --compile --target=darwin-x64 --outfile glassnet-mac src/server.js",
+    "build-linux": "bun build --compile --target=linux-x64 --outfile glassnet-linux src/server.js",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.6",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/ws": "^8.5.8"
+  },
+  "keywords": [
+    "network",
+    "monitoring",
+    "cross-platform",
+    "bun",
+    "sqlite"
+  ],
+  "author": "GlassNet Team",
+  "license": "MIT"
+}

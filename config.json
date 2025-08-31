@@ -1,0 +1,19 @@
+{
+  "monitoring": {
+    "interval": 5000,
+    "protocols": ["tcp", "udp"],
+    "includeLoopback": false
+  },
+  "database": {
+    "retentionDays": 3,
+    "cleanupInterval": "daily"
+  },
+  "server": {
+    "port": 3000,
+    "autoLaunchBrowser": true
+  },
+  "privacy": {
+    "resolveHostnames": true,
+    "logProcessArgs": false
+  }
+}
