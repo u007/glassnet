@@ -126,6 +126,22 @@
                     </div>
                     <button id="clearPortFilters" class="btn btn-secondary" title="Clear port filters">🗑️</button>
                     <button id="refreshBtn" class="btn btn-primary">🔄 Refresh</button>
+                    
+                    <!-- Auto-refresh controls -->
+                    <div class="filter-group">
+                        <label for="autoRefreshToggle">Auto Refresh:</label>
+                        <button id="autoRefreshToggle" class="btn btn-secondary" title="Toggle auto-refresh">▶️ Enable</button>
+                    </div>
+                    <div class="filter-group">
+                        <label for="refreshInterval">Interval (sec):</label>
+                        <select id="refreshInterval">
+                            <option value="5">5 seconds</option>
+                            <option value="10" selected>10 seconds</option>
+                            <option value="15">15 seconds</option>
+                            <option value="30">30 seconds</option>
+                            <option value="60">1 minute</option>
+                        </select>
+                    </div>
                 </div>
 
                 <!-- Live Connections Table -->
@@ -135,18 +151,20 @@
                         <table id="connectionsTable" class="data-table">
                             <thead>
                                 <tr>
+                                    <th class="expand-column"></th>
                                     <th>Time</th>
                                     <th>Process</th>
+                                    <th>PID</th>
                                     <th>User</th>
                                     <th>Protocol</th>
-                                    <th>Local Address</th>
-                                    <th>Remote Address</th>
+                                    <th>Local Ports</th>
+                                    <th>Remote Connections</th>
                                     <th>State</th>
                                 </tr>
                             </thead>
                             <tbody id="connectionsBody">
                                 <tr>
-                                    <td colspan="7" class="loading">Loading connections...</td>
+                                    <td colspan="9" class="loading">Loading connections...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -160,9 +178,12 @@
                     <div class="filter-group">
                         <label for="historyDays">Show last:</label>
                         <select id="historyDays">
-                            <option value="1">24 hours</option>
-                            <option value="3" selected>3 days</option>
-                            <option value="7">7 days</option>
+                            <option value="15m">15 minutes</option>
+                            <option value="30m">30 minutes</option>
+                            <option value="1h">1 hour</option>
+                            <option value="24h">24 hours</option>
+                            <option value="3d" selected>3 days</option>
+                            <option value="7d">7 days</option>
                         </select>
                     </div>
                     <div class="filter-group">
@@ -180,6 +201,7 @@
                         <table id="historyTable" class="data-table">
                             <thead>
                                 <tr>
+                                    <th class="expand-column"></th>
                                     <th>Timestamp</th>
                                     <th>Process</th>
                                     <th>User</th>
@@ -192,7 +214,7 @@
                             </thead>
                             <tbody id="historyBody">
                                 <tr>
-                                    <td colspan="8" class="empty">No history data loaded</td>
+                                    <td colspan="9" class="empty">No history data loaded</td>
                                 </tr>
                             </tbody>
                         </table>

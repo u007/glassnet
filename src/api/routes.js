@@ -53,10 +53,16 @@ export class APIRoutes {
           response = await this.getConfig();
           break;
         default:
-          response = new Response(
-            JSON.stringify({ error: 'Not found' }), 
-            { status: 404, headers: { 'Content-Type': 'application/json' } }
-          );
+          // Check for dynamic routes
+          if (pathname.startsWith('/api/process/')) {
+            const pid = pathname.split('/')[3];
+            response = await this.getProcessDetails(pid);
+          } else {
+            response = new Response(
+              JSON.stringify({ error: 'Not found' }), 
+              { status: 404, headers: { 'Content-Type': 'application/json' } }
+            );
+          }
       }
 
       // Add CORS headers to response
@@ -279,5 +285,132 @@ export class APIRoutes {
         headers: { 'Content-Type': 'application/json' } 
       }
     );
+  }
+
+  /**
+   * Get detailed process information by PID
+   */
+  async getProcessDetails(pid) {
+    try {
+      const processId = parseInt(pid);
+      if (isNaN(processId)) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid process ID' }), 
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Import ProcessUtils dynamically
+      const { ProcessUtils } = await import('../utils/process-utils.js');
+      const { Platform } = await import('../utils/platform.js');
+
+      let processInfo = {
+        pid: processId,
+        executablePath: 'N/A',
+        commandLine: 'N/A',
+        workingDirectory: 'N/A',
+        parentPid: 'N/A'
+      };
+
+      if (Platform.isWindows) {
+        // Use PowerShell to get detailed process information
+        try {
+          const result = await Bun.spawn([
+            'powershell', 
+            '-Command', 
+            `Get-CimInstance Win32_Process -Filter "ProcessId=${processId}" | Select-Object ProcessId,Name,ExecutablePath,CommandLine,WorkingSetSize,ParentProcessId | ConvertTo-Json`
+          ], {
+            stdout: 'pipe',
+            stderr: 'pipe'
+          });
+
+          const output = await new Response(result.stdout).text();
+          if (output.trim()) {
+            const winProcessInfo = JSON.parse(output);
+            processInfo.executablePath = winProcessInfo.ExecutablePath || 'N/A';
+            processInfo.commandLine = winProcessInfo.CommandLine || 'N/A';
+            processInfo.parentPid = winProcessInfo.ParentProcessId || 'N/A';
+          }
+        } catch (error) {
+          console.error('Error getting Windows process details:', error);
+        }
+      } else {
+        // Unix-like systems (macOS, Linux)
+        try {
+          // Try to get executable path and command line
+          const psResult = await Bun.spawn(['ps', '-p', processId.toString(), '-o', 'pid,ppid,comm,args'], {
+            stdout: 'pipe',
+            stderr: 'pipe'
+          });
+
+          const psOutput = await new Response(psResult.stdout).text();
+          const lines = psOutput.split('\n').filter(line => line.trim());
+          
+          if (lines.length > 1) { // Skip header line
+            const processLine = lines[1].trim();
+            const parts = processLine.split(/\s+/);
+            
+            if (parts.length >= 4) {
+              processInfo.parentPid = parts[1];
+              processInfo.commandLine = parts.slice(3).join(' ');
+              
+              // Try to extract executable path from command line
+              const commandParts = processInfo.commandLine.split(' ');
+              if (commandParts.length > 0) {
+                processInfo.executablePath = commandParts[0];
+              }
+            }
+          }
+
+          // Try to get working directory on macOS/Linux
+          try {
+            const lsofResult = await Bun.spawn(['lsof', '-p', processId.toString(), '-d', 'cwd'], {
+              stdout: 'pipe',
+              stderr: 'pipe'
+            });
+
+            const lsofOutput = await new Response(lsofResult.stdout).text();
+            const lsofLines = lsofOutput.split('\n');
+            
+            for (const line of lsofLines) {
+              if (line.includes('cwd') && line.includes('DIR')) {
+                const parts = line.trim().split(/\s+/);
+                if (parts.length > 8) {
+                  processInfo.workingDirectory = parts[parts.length - 1];
+                  break;
+                }
+              }
+            }
+          } catch (error) {
+            // lsof might not be available or might fail
+            console.warn('Could not get working directory:', error.message);
+          }
+
+        } catch (error) {
+          console.error('Error getting Unix process details:', error);
+        }
+      }
+
+      return new Response(
+        JSON.stringify(processInfo), 
+        { 
+          status: 200, 
+          headers: { 'Content-Type': 'application/json' } 
+        }
+      );
+
+    } catch (error) {
+      console.error('Error in getProcessDetails:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to get process details',
+          message: error.message 
+        }), 
+        { 
+          status: 500, 
+          headers: { 'Content-Type': 'application/json' } 
+        }
+      );
+    }
   }
 }

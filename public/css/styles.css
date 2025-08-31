@@ -1,3 +1,12 @@
+/* Force dark background for all rows in dark mode */
+@media (prefers-color-scheme: dark) {
+  .dark-row {
+    background-color: #1e293b !important;
+  }
+  .connection-details.dark-row {
+    background-color: #24344a !important;
+  }
+}
 /* GlassNet Styles */
 
 :root {
@@ -326,7 +335,7 @@ body {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  min-width: 1200px; /* Ensure minimum width for horizontal scrolling */
 }
 
 .data-table th {
@@ -342,6 +351,12 @@ body {
   user-select: none;
 }
 
+.data-table th.expand-column {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+}
+
 .data-table td {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border-color);
@@ -349,10 +364,49 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 0;
+  position: relative;
+}
+
+.data-table td:first-child {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+}
+
+/* Allow text wrapping on hover for better readability */
+.data-table tr:hover td {
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: initial;
 }
 
 .data-table tr:hover {
+  background-color: var(--surface-color);
+}
+
+/* Ensure base row background inherits dark surface (fix white row issue) */
+.data-table tbody tr {
   background-color: var(--background-color);
+}
+
+/* Grouped connection specific background (darker subtle) */
+.data-table tbody tr.grouped-connection {
+  background-color: rgba(59,59,79,0.35); /* subtle tint */
+}
+
+@media (prefers-color-scheme: dark) {
+  .data-table tbody tr {
+    background-color: #1e293b; /* enforce dark rows */
+  }
+  .data-table tbody tr.grouped-connection {
+    background-color: #24344a;
+  }
+  .data-table tr:hover {
+    background-color: #2d3f57;
+  }
 }
 
 .data-table tr.new-connection {
@@ -364,12 +418,205 @@ body {
   background-color: rgba(34, 197, 94, 0.15);
 }
 
+.data-table tr.duplicate-connection {
+  background-color: rgba(59, 130, 246, 0.05);
+  border-left: 3px solid var(--primary-color);
+}
+
+.data-table tr.duplicate-connection:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* Duplicate badge */
+.duplicate-badge {
+  background: var(--primary-color);
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.75rem;
+  margin-left: 0.5rem;
+  display: inline-block;
+  min-width: 1rem;
+  text-align: center;
+}
+
+/* PID column styling */
+.data-table td:nth-child(4) {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
 .data-table .loading,
 .data-table .empty {
   text-align: center;
   color: var(--text-secondary);
   font-style: italic;
   padding: 2rem;
+}
+
+/* Expand Button */
+.expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 0.25rem;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  background-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.expand-icon {
+  font-size: 0.75rem;
+  transition: transform 0.2s;
+}
+
+/* Connection Details */
+.connection-details {
+  background-color: var(--background-color);
+}
+
+.details-content {
+  padding: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.connection-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.detail-section {
+  background: var(--surface-color);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+}
+
+.detail-section h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 0.5rem 0;
+  gap: 1rem;
+  min-height: 2rem;
+}
+
+.detail-item:not(:last-child) {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.detail-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.detail-value {
+  text-align: right;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  color: var(--text-primary);
+  flex: 1;
+  max-width: calc(100% - 140px);
+  line-height: 1.4;
+  overflow: visible;
+}
+
+.detail-value.loading-text {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Tooltips for long content */
+.data-table td[title] {
+  cursor: help;
+}
+
+.data-table td[title]:hover {
+  position: relative;
+}
+
+/* Truncated text with ellipsis for long process names */
+.process-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Command line text styling */
+.command-line-text {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8rem;
+  background: var(--background-color);
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  border: 1px solid var(--border-color);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+}
+
+/* Path text styling */
+.path-text {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8rem;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  display: block;
+  white-space: pre-wrap;
+  text-align: left;
+}
+
+/* Ensure long executable paths and command lines wrap nicely */
+.detail-item .detail-value .path-text,
+.detail-item .detail-value .command-line-text {
+  white-space: pre-wrap !important;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+/* Better spacing for connection details */
+.detail-value code {
+  background: var(--background-color);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--border-color);
 }
 
 /* Column resizing */
@@ -601,6 +848,77 @@ body {
   .data-table {
     table-layout: auto;
   }
+
+  /* Connection details responsive */
+  .connection-details-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .detail-section {
+    padding: 0.75rem;
+  }
+
+  .detail-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+    padding: 0.75rem 0;
+  }
+
+  .detail-label {
+    min-width: auto;
+    white-space: normal;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+  }
+
+  .detail-value {
+    text-align: left;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    max-width: 100%;
+    font-size: 0.875rem;
+    background: var(--background-color);
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--border-color);
+  }
+
+  .expand-btn {
+    width: 20px;
+    height: 20px;
+  }
+
+  .expand-icon {
+    font-size: 0.625rem;
+  }
+
+  /* Make table more responsive on mobile */
+  .data-table td {
+    white-space: normal;
+    word-wrap: break-word;
+    word-break: break-word;
+    max-width: none;
+    padding: 0.5rem;
+  }
+
+  .data-table th {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  /* Adjust column widths for mobile */
+  .data-table th:nth-child(1) { width: 30px; }
+  .data-table th:nth-child(2) { width: 60px; }
+  .data-table th:nth-child(3) { min-width: 80px; }
+  .data-table th:nth-child(4) { width: 50px; }
+  .data-table th:nth-child(5) { width: 50px; }
+  .data-table th:nth-child(6) { width: 40px; }
+  .data-table th:nth-child(7) { min-width: 100px; }
+  .data-table th:nth-child(8) { min-width: 100px; }
+  .data-table th:nth-child(9) { width: 80px; }
 }
 
 /* Dark mode support */
@@ -631,4 +949,200 @@ body {
 
 .table-wrapper::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+/* Connection badges and labels */
+.port-badge, .protocol-badge, .state-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  margin: 1px 2px;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.port-badge {
+  background-color: #e3f2fd;
+  color: #1976d2;
+  border: 1px solid #bbdefb;
+}
+
+.protocol-badge {
+  background-color: #f3e5f5;
+  color: #7b1fa2;
+  border: 1px solid #e1bee7;
+}
+
+.state-badge {
+  background-color: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.connection-count-badge {
+  display: inline-block;
+  background-color: #fff3e0;
+  color: #f57c00;
+  border: 1px solid #ffcc02;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 0.8em;
+  font-weight: 600;
+  min-width: 20px;
+  text-align: center;
+}
+
+/* Grouped connection styling */
+.grouped-connection {
+  background-color: #f8f9fa;
+  border-left: 3px solid #007bff;
+}
+
+.grouped-connection:hover {
+  background-color: #e9ecef;
+  border-left-color: #0056b3;
+}
+
+/* Connection list in details */
+.connection-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 5px;
+  padding: 5px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+}
+
+.connection-entry {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.85em;
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.connection-more {
+  font-style: italic;
+  color: #6c757d;
+  margin-top: 5px;
+  text-align: center;
+}
+
+/* Port and connection summary styling */
+.ports-list, .connections-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.no-ports, .no-connections {
+  color: #6c757d;
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+/* Enhanced detail value styling */
+.detail-value code {
+  background-color: #f8f9fa;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  color: #495057;
+}
+
+/* Mobile responsive adjustments for badges */
+@media (max-width: 768px) {
+  .port-badge, .protocol-badge, .state-badge {
+    font-size: 0.75em;
+    padding: 1px 4px;
+    margin: 1px;
+  }
+  
+  .connection-count-badge {
+    font-size: 0.7em;
+    padding: 1px 4px;
+  }
+  
+  .connection-list {
+    max-height: 150px;
+  }
+  
+  .connection-entry {
+    font-size: 0.8em;
+  }
+}
+
+/* Dark mode badge adjustments */
+@media (prefers-color-scheme: dark) {
+  .port-badge {
+    background-color: #1e3a8a;
+    color: #93c5fd;
+    border: 1px solid #3730a3;
+  }
+  
+  .protocol-badge {
+    background-color: #581c87;
+    color: #ddd6fe;
+    border: 1px solid #7c3aed;
+  }
+  
+  .state-badge {
+    background-color: #14532d;
+    color: #86efac;
+    border: 1px solid #16a34a;
+  }
+  
+  .connection-count-badge {
+    background-color: #92400e;
+    color: #fbbf24;
+    border: 1px solid #d97706;
+  }
+  
+  .connection-list {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+  }
+  
+  .detail-value code {
+    background-color: #1e293b;
+    color: #cbd5e1;
+  }
+}
+
+/* Auto-refresh controls styling */
+#autoRefreshToggle {
+  min-width: 90px;
+  transition: all 0.2s ease;
+}
+
+#autoRefreshToggle.btn-primary {
+  background-color: var(--success-color);
+  color: white;
+}
+
+#autoRefreshToggle.btn-primary:hover {
+  background-color: #059669;
+}
+
+#refreshInterval {
+  min-width: 120px;
+}
+
+/* Enhanced filter layout for auto-refresh controls */
+.filters {
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.filter-group {
+  min-width: auto;
+}
+
+.filter-group:has(#autoRefreshToggle),
+.filter-group:has(#refreshInterval) {
+  min-width: 120px;
 }

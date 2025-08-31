@@ -13,6 +13,13 @@ class Dashboard {
       portRange: ''
     };
     this.columnWidths = this.loadColumnWidths();
+    this.expandedConnections = this.loadExpandedConnections(); // Load from localStorage
+    
+    // Auto-refresh properties
+    this.autoRefreshEnabled = false;
+    this.autoRefreshInterval = 10; // seconds
+    this.autoRefreshTimer = null;
+    
     this.popularPorts = {
       'Web Servers': [80, 443, 8080, 8443, 3000, 8000],
       'SSH/Remote': [22, 3389, 5900, 5901],
@@ -96,6 +103,23 @@ class Dashboard {
       this.loadInitialData();
     });
 
+    // Auto-refresh controls
+    document.getElementById('autoRefreshToggle').addEventListener('click', () => {
+      this.toggleAutoRefresh();
+    });
+
+    document.getElementById('refreshInterval').addEventListener('change', (e) => {
+      this.autoRefreshInterval = parseInt(e.target.value);
+      if (this.autoRefreshEnabled) {
+        this.restartAutoRefresh();
+      }
+    });
+
+    // Cleanup auto-refresh on page unload
+    window.addEventListener('beforeunload', () => {
+      this.stopAutoRefresh();
+    });
+
     // Column resizing
     this.setupColumnResizing();
   }
@@ -177,6 +201,9 @@ class Dashboard {
 
       this.connections = data.connections || [];
       this.renderConnections();
+
+      // Cleanup old expanded connection IDs periodically
+      this.cleanupExpandedConnections();
 
     } catch (error) {
       console.error('Error loading connections:', error);
@@ -273,6 +300,11 @@ class Dashboard {
    */
   getFilteredConnections() {
     return this.connections.filter(conn => {
+      // Filter out connections without process ID
+      if (!conn.process_id || conn.process_id === 'N/A' || conn.process_id === 0) {
+        return false;
+      }
+      
       if (this.filters.protocol && conn.protocol !== this.filters.protocol) {
         return false;
       }
@@ -335,19 +367,120 @@ class Dashboard {
   }
 
   /**
+   * Group connections by process ID and aggregate port information
+   */
+  deduplicateConnections(connections) {
+    const processGroups = new Map();
+
+    // Group connections by process ID
+    connections.forEach(conn => {
+      const pid = conn.process_id;
+      if (!processGroups.has(pid)) {
+        processGroups.set(pid, {
+          process_id: pid,
+          process_name: conn.process_name,
+          user_name: conn.user_name,
+          timestamp: conn.timestamp,
+          isNew: conn.isNew,
+          connections: [],
+          localPorts: new Set(),
+          remotePorts: new Set(),
+          protocols: new Set(),
+          states: new Set(),
+          remoteAddresses: new Set(),
+          totalConnections: 0
+        });
+      }
+      
+      const group = processGroups.get(pid);
+      group.connections.push(conn);
+      group.totalConnections++;
+      
+      // Collect unique ports and other info
+      if (conn.local_port && conn.local_port !== 0) {
+        group.localPorts.add(conn.local_port);
+      }
+      if (conn.remote_port && conn.remote_port !== 0) {
+        group.remotePorts.add(conn.remote_port);
+      }
+      if (conn.protocol) {
+        group.protocols.add(conn.protocol.toUpperCase());
+      }
+      if (conn.state && conn.state !== 'UNKNOWN') {
+        group.states.add(conn.state);
+      }
+      if (conn.remote_address && conn.remote_address !== '*' && conn.remote_address !== '0.0.0.0') {
+        group.remoteAddresses.add(conn.remote_address);
+      }
+      
+      // Use the most recent timestamp
+      if (new Date(conn.timestamp) > new Date(group.timestamp)) {
+        group.timestamp = conn.timestamp;
+        group.isNew = conn.isNew;
+      }
+    });
+
+    // Convert to array and format for display
+    const result = Array.from(processGroups.values()).map(group => {
+      const localPortsArray = Array.from(group.localPorts).sort((a, b) => a - b);
+      const remotePortsArray = Array.from(group.remotePorts).sort((a, b) => a - b);
+      const protocolsArray = Array.from(group.protocols);
+      const statesArray = Array.from(group.states);
+      const remoteAddressesArray = Array.from(group.remoteAddresses);
+
+      return {
+        process_id: group.process_id,
+        process_name: group.process_name,
+        user_name: group.user_name,
+        timestamp: group.timestamp,
+        isNew: group.isNew,
+        
+        // Aggregated information
+        localPortsList: localPortsArray,
+        remotePortsList: remotePortsArray,
+        protocolsList: protocolsArray,
+        statesList: statesArray,
+        remoteAddressesList: remoteAddressesArray,
+        totalConnections: group.totalConnections,
+        allConnections: group.connections,
+        
+        // For display compatibility
+        protocol: protocolsArray.join('/'),
+        local_port: localPortsArray.length > 0 ? localPortsArray[0] : 0,
+        remote_port: remotePortsArray.length > 0 ? remotePortsArray[0] : 0,
+        local_address: group.connections[0]?.local_address || '*',
+        remote_address: remoteAddressesArray.length > 0 ? remoteAddressesArray[0] : '*',
+        state: statesArray.join('/'),
+        remote_hostname: group.connections[0]?.remote_hostname,
+        
+        // Mark as grouped
+        isGrouped: true,
+        duplicateCount: group.totalConnections
+      };
+    });
+
+    // Sort by timestamp (newest first)
+    return result.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }
+
+  /**
    * Render connections table
    */
   renderConnections() {
     const tbody = document.getElementById('connectionsBody');
     const filteredConnections = this.getFilteredConnections();
+    const deduplicatedConnections = this.deduplicateConnections(filteredConnections);
+
+  // Build a map from connectionId -> aggregated/grouped connection object for toggle usage
+  this.connectionIdMap = new Map();
 
     // Update filter results counter
-    this.updateResultsCounter(filteredConnections.length);
+    this.updateResultsCounter(deduplicatedConnections.length, filteredConnections.length);
 
-    if (filteredConnections.length === 0) {
+    if (deduplicatedConnections.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="7" class="empty">
+          <td colspan="9" class="empty">
             ${this.connections.length === 0 ? 'No connections found' : 'No connections match the current filters'}
           </td>
         </tr>
@@ -355,22 +488,57 @@ class Dashboard {
       return;
     }
 
-    tbody.innerHTML = filteredConnections.map(conn => `
-      <tr class="${conn.isNew ? 'new-connection' : ''}">
-        <td>${this.formatTime(conn.timestamp)}</td>
-        <td title="${conn.process_name || 'Unknown'}">${this.truncateText(conn.process_name || 'Unknown', 20)}</td>
-        <td>${conn.user_name || 'Unknown'}</td>
-        <td><span class="protocol-${conn.protocol}">${conn.protocol.toUpperCase()}</span></td>
-        <td>${this.formatAddress(conn.local_address, conn.local_port)}</td>
-        <td title="${this.getRemoteAddressTooltip(conn)}">
-          ${this.formatRemoteAddress(conn)}
-        </td>
-        <td><span class="state-${conn.state?.toLowerCase().replace(/[_\s]/g, '_')}">${conn.state || 'UNKNOWN'}</span></td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = deduplicatedConnections.map((conn, index) => {
+      const connectionId = this.generateConnectionId(conn);
+      const isExpanded = this.isConnectionExpanded(conn);
+      this.connectionIdMap.set(connectionId, conn);
+      // Add dark-row class for all rows for dark theme enforcement
+      return `
+        <tr class="${conn.isNew ? 'new-connection' : ''} ${conn.isGrouped ? 'grouped-connection' : ''} dark-row" data-connection-id="${connectionId}">
+          <td>
+            <button class="expand-btn" onclick="dashboard.toggleConnectionDetails('${connectionId}', ${index})" 
+                    aria-label="Expand connection details" 
+                    aria-expanded="${isExpanded}"
+                    title="${isExpanded ? 'Hide' : 'Show'} connection details">
+              <span class="expand-icon">${isExpanded ? '▼' : '▶'}</span>
+            </button>
+          </td>
+          <td>${this.formatTime(conn.timestamp)}</td>
+          <td title="${conn.process_name || 'Unknown'}">
+            <span class="process-name">${conn.process_name || 'Unknown'}</span>
+            ${conn.totalConnections > 1 ? `<span class="connection-count-badge" title="${conn.totalConnections} connections">${conn.totalConnections}</span>` : ''}
+          </td>
+          <td title="Process ID">${conn.process_id || 'N/A'}</td>
+          <td>${conn.user_name || 'Unknown'}</td>
+          <td><span class="protocol-mixed">${conn.protocolsList ? conn.protocolsList.join('/') : conn.protocol.toUpperCase()}</span></td>
+          <td title="Local ports: ${conn.localPortsList ? conn.localPortsList.join(', ') : 'None'}">
+            ${this.formatPortsList(conn.localPortsList)}
+          </td>
+          <td title="Remote addresses and ports">
+            ${this.formatRemoteConnections(conn)}
+          </td>
+          <td><span class="state-mixed">${conn.statesList ? conn.statesList.join('/') : (conn.state || 'UNKNOWN')}</span></td>
+        </tr>
+        <tr class="connection-details dark-row" id="details-${connectionId}" style="display: ${isExpanded ? 'table-row' : 'none'};">
+          <td colspan="9">
+            <div class="details-content">
+              ${this.renderConnectionDetails(conn, connectionId)}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
 
     // Apply saved column widths
     this.applyColumnWidths();
+
+    // Load additional details for expanded connections
+    deduplicatedConnections.forEach((conn, index) => {
+      if (this.isConnectionExpanded(conn)) {
+        const connectionId = this.generateConnectionId(conn);
+        this.loadAdditionalConnectionDetails(connectionId, conn);
+      }
+    });
   }
 
   /**
@@ -380,11 +548,248 @@ class Dashboard {
     const tbody = document.getElementById('connectionsBody');
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="loading">
+        <td colspan="9" class="loading">
           Failed to load connections. <button onclick="dashboard.loadConnections()" class="btn btn-primary">Retry</button>
         </td>
       </tr>
     `;
+  }
+
+  /**
+   * Toggle connection details display
+   */
+  toggleConnectionDetails(connectionId, index) {
+    const detailsRow = document.getElementById(`details-${connectionId}`);
+    const expandBtn = document.querySelector(`[data-connection-id="${connectionId}"] .expand-btn`);
+    if (!expandBtn || !detailsRow) return; // safety
+    const expandIcon = expandBtn.querySelector('.expand-icon');
+
+    // Retrieve the aggregated/grouped connection object we stored during render
+    const conn = this.connectionIdMap?.get(connectionId);
+
+    const isCurrentlyHidden = detailsRow.style.display === 'none';
+    if (isCurrentlyHidden) {
+      detailsRow.style.display = 'table-row';
+      expandIcon.textContent = '▼';
+      expandBtn.setAttribute('aria-expanded', 'true');
+      expandBtn.title = 'Hide connection details';
+      // Persist expanded state directly via connectionId
+      this.expandedConnections.add(connectionId);
+      this.saveExpandedConnections();
+      if (conn) {
+        this.loadAdditionalConnectionDetails(connectionId, conn);
+      }
+    } else {
+      detailsRow.style.display = 'none';
+      expandIcon.textContent = '▶';
+      expandBtn.setAttribute('aria-expanded', 'false');
+      expandBtn.title = 'Show connection details';
+      this.expandedConnections.delete(connectionId);
+      this.saveExpandedConnections();
+    }
+  }
+
+  /**
+   * Render detailed connection information
+   */
+  renderConnectionDetails(conn, connectionId) {
+    const isGrouped = conn.isGrouped;
+    
+    return `
+      <div class="connection-details-grid">
+        <div class="detail-section">
+          <h4>Process Information</h4>
+          <div class="detail-item">
+            <span class="detail-label">Process Name:</span>
+            <span class="detail-value">${conn.process_name || 'Unknown'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Process ID:</span>
+            <span class="detail-value">${conn.process_id || 'N/A'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">User:</span>
+            <span class="detail-value">${conn.user_name || 'Unknown'}</span>
+          </div>
+          <div class="detail-item" id="process-path-${connectionId}">
+            <span class="detail-label">Executable Path:</span>
+            <span class="detail-value loading-text">Loading...</span>
+          </div>
+          <div class="detail-item" id="process-args-${connectionId}">
+            <span class="detail-label">Command Line:</span>
+            <span class="detail-value loading-text">Loading...</span>
+          </div>
+          ${isGrouped ? `
+          <div class="detail-item">
+            <span class="detail-label">Total Connections:</span>
+            <span class="detail-value">${conn.totalConnections}</span>
+          </div>
+          ` : ''}
+        </div>
+        
+        <div class="detail-section">
+          <h4>Connection Summary</h4>
+          ${isGrouped ? `
+          <div class="detail-item">
+            <span class="detail-label">Protocols:</span>
+            <span class="detail-value">${conn.protocolsList.map(p => `<span class="protocol-badge">${p}</span>`).join(' ')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Local Ports:</span>
+            <span class="detail-value">
+              ${conn.localPortsList.length > 0 ? 
+                conn.localPortsList.map(port => `<span class="port-badge">${port}</span>`).join(' ') : 
+                'None'}
+            </span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Remote Ports:</span>
+            <span class="detail-value">
+              ${conn.remotePortsList.length > 0 ? 
+                conn.remotePortsList.map(port => `<span class="port-badge">${port}</span>`).join(' ') : 
+                'None'}
+            </span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Remote Addresses:</span>
+            <span class="detail-value">
+              ${conn.remoteAddressesList.length > 0 ? 
+                conn.remoteAddressesList.map(addr => `<code>${addr}</code>`).join('<br>') : 
+                'None'}
+            </span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Connection States:</span>
+            <span class="detail-value">${conn.statesList.map(s => `<span class="state-badge">${s}</span>`).join(' ')}</span>
+          </div>
+          ` : `
+          <div class="detail-item">
+            <span class="detail-label">Protocol:</span>
+            <span class="detail-value protocol-${conn.protocol}">${conn.protocol.toUpperCase()}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">State:</span>
+            <span class="detail-value state-${conn.state?.toLowerCase().replace(/[_\s]/g, '_')}">${conn.state || 'UNKNOWN'}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Local Address:</span>
+            <span class="detail-value">${this.formatAddress(conn.local_address, conn.local_port)}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Remote Address:</span>
+            <span class="detail-value">${this.formatAddress(conn.remote_address, conn.remote_port)}</span>
+          </div>
+          ${conn.remote_hostname ? `
+          <div class="detail-item">
+            <span class="detail-label">Remote Hostname:</span>
+            <span class="detail-value">${conn.remote_hostname}</span>
+          </div>
+          ` : ''}
+          `}
+        </div>
+        
+        <div class="detail-section">
+          <h4>Additional Information</h4>
+          <div class="detail-item">
+            <span class="detail-label">Latest Activity:</span>
+            <span class="detail-value">${this.formatFullTime(conn.timestamp)}</span>
+          </div>
+          ${conn.bytes_sent || conn.bytes_received ? `
+          <div class="detail-item">
+            <span class="detail-label">Data Transfer:</span>
+            <span class="detail-value">
+              ↑ ${this.formatBytes(conn.bytes_sent || 0)} 
+              ↓ ${this.formatBytes(conn.bytes_received || 0)}
+            </span>
+          </div>
+          ` : ''}
+          ${isGrouped && conn.allConnections ? `
+          <div class="detail-item">
+            <span class="detail-label">Connection Details:</span>
+            <span class="detail-value">
+              <div class="connection-list">
+                ${conn.allConnections.slice(0, 10).map(c => 
+                  `<div class="connection-entry">
+                    ${c.protocol.toUpperCase()} ${this.formatAddress(c.local_address, c.local_port)} → ${this.formatAddress(c.remote_address, c.remote_port)} (${c.state})
+                  </div>`
+                ).join('')}
+                ${conn.allConnections.length > 10 ? `<div class="connection-more">... and ${conn.allConnections.length - 10} more</div>` : ''}
+              </div>
+            </span>
+          </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Load additional connection details like process path and command line
+   */
+  async loadAdditionalConnectionDetails(connectionId, conn) {
+    if (!conn || !conn.process_id) {
+      this.updateProcessDetails(connectionId, 'N/A', 'N/A');
+      return;
+    }
+
+    try {
+      // Fetch detailed process information
+      const response = await fetch(`/api/process/${conn.process_id}`);
+      if (response.ok) {
+        const processInfo = await response.json();
+        this.updateProcessDetails(
+          connectionId, 
+          processInfo.executablePath || 'N/A',
+          processInfo.commandLine || 'N/A'
+        );
+      } else {
+        // Fall back to basic information
+        this.updateProcessDetails(connectionId, 'N/A', 'N/A');
+      }
+    } catch (error) {
+      console.error('Error loading process details:', error);
+      this.updateProcessDetails(connectionId, 'Error loading', 'Error loading');
+    }
+  }
+
+  /**
+   * Update process details in the UI
+   */
+  updateProcessDetails(connectionId, executablePath, commandLine) {
+    const pathElement = document.getElementById(`process-path-${connectionId}`);
+    const argsElement = document.getElementById(`process-args-${connectionId}`);
+    
+    if (pathElement) {
+      const valueSpan = pathElement.querySelector('.detail-value');
+      valueSpan.innerHTML = executablePath === 'N/A' || executablePath === 'Error loading' 
+        ? executablePath 
+        : `<span class="path-text">${this.escapeHtml(executablePath)}</span>`;
+      valueSpan.classList.remove('loading-text');
+      if (executablePath !== 'N/A' && executablePath !== 'Error loading') {
+        valueSpan.title = executablePath; // Full path in tooltip
+      }
+    }
+    
+    if (argsElement) {
+      const valueSpan = argsElement.querySelector('.detail-value');
+      if (commandLine === 'N/A' || commandLine === 'Error loading') {
+        valueSpan.textContent = commandLine;
+      } else {
+        // Show full command line with proper wrapping - no truncation
+        valueSpan.innerHTML = `<span class="command-line-text">${this.escapeHtml(commandLine)}</span>`;
+        valueSpan.title = commandLine; // Full command line in tooltip for copy/paste
+      }
+      valueSpan.classList.remove('loading-text');
+    }
+  }
+
+  /**
+   * Escape HTML characters
+   */
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   /**
@@ -393,6 +798,92 @@ class Dashboard {
   updateMonitoringStatus(status) {
     // Update any monitoring status indicators if needed
     console.log('Monitoring status:', status);
+  }
+
+  /**
+   * Generate a unique identifier for a connection
+   */
+  generateConnectionId(conn) {
+    // For grouped (process-level) rows, expansion should persist per PID only
+    if (conn.isGrouped && (conn.process_id || conn.process_id === 0)) {
+      return `PID_${conn.process_id}`;
+    }
+    // For non-grouped rows, use PID + unique connection signature (not just PID)
+    const idParts = [
+      conn.process_id || '0',
+      conn.protocol || 'unknown',
+      conn.local_address || '*',
+      conn.local_port || '0',
+      conn.remote_address || '*',
+      conn.remote_port || '0'
+    ];
+    return 'CID_' + btoa(idParts.join('|')).replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  /**
+   * Check if a connection is expanded
+   */
+  isConnectionExpanded(conn) {
+    const connectionId = this.generateConnectionId(conn);
+    return this.expandedConnections.has(connectionId);
+  }
+
+  /**
+   * Toggle connection expansion state
+   */
+  setConnectionExpanded(conn, expanded) {
+    const connectionId = this.generateConnectionId(conn);
+    if (expanded) {
+      this.expandedConnections.add(connectionId);
+    } else {
+      this.expandedConnections.delete(connectionId);
+    }
+    // Save to localStorage
+    this.saveExpandedConnections();
+  }
+
+  /**
+   * Load expanded connections from localStorage
+   */
+  loadExpandedConnections() {
+    const saved = localStorage.getItem('glassnet-expanded-connections');
+    if (saved) {
+      try {
+        const expandedArray = JSON.parse(saved);
+        return new Set(expandedArray);
+      } catch (e) {
+        console.warn('Failed to parse saved expanded connections:', e);
+      }
+    }
+    return new Set();
+  }
+
+  /**
+   * Save expanded connections to localStorage
+   */
+  saveExpandedConnections() {
+    const expandedArray = Array.from(this.expandedConnections);
+    localStorage.setItem('glassnet-expanded-connections', JSON.stringify(expandedArray));
+  }
+  // (Legacy normalization removed due to stray block causing syntax error.)
+  /**
+   * Clean up old expanded connection IDs (optional, to prevent localStorage from growing too large)
+   */
+  cleanupExpandedConnections() {
+    // Remove expanded state for connections that haven't been seen in a while
+    const currentConnectionIds = new Set(this.connections.map(conn => this.generateConnectionId(conn)));
+    let changed = false;
+    
+    for (const expandedId of this.expandedConnections) {
+      if (!currentConnectionIds.has(expandedId)) {
+        this.expandedConnections.delete(expandedId);
+        changed = true;
+      }
+    }
+    
+    if (changed) {
+      this.saveExpandedConnections();
+    }
   }
 
   /**
@@ -416,6 +907,25 @@ class Dashboard {
   formatTime(timestamp) {
     const date = new Date(timestamp);
     return date.toLocaleTimeString();
+  }
+
+  /**
+   * Format full date and time for detailed view
+   */
+  formatFullTime(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleString();
+  }
+
+  /**
+   * Format bytes for display
+   */
+  formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   /**
@@ -447,6 +957,45 @@ class Dashboard {
 
     // Otherwise just show IP:port
     return `${address}:${port || 0}`;
+  }
+
+  /**
+   * Format a list of ports for display
+   */
+  formatPortsList(portsList) {
+    if (!portsList || portsList.length === 0) {
+      return '<span class="no-ports">None</span>';
+    }
+    
+    if (portsList.length <= 5) {
+      return portsList.map(port => `<span class="port-badge">${port}</span>`).join(' ');
+    }
+    
+    // Show first few ports and a count of remaining
+    const visible = portsList.slice(0, 3);
+    const remaining = portsList.length - 3;
+    return visible.map(port => `<span class="port-badge">${port}</span>`).join(' ') + 
+           ` <span class="port-more">+${remaining} more</span>`;
+  }
+
+  /**
+   * Format remote connections information
+   */
+  formatRemoteConnections(conn) {
+    if (!conn.remoteAddressesList || conn.remoteAddressesList.length === 0) {
+      return '<span class="no-connections">No remote connections</span>';
+    }
+    
+    const uniqueAddresses = conn.remoteAddressesList.length;
+    const uniqueRemotePorts = conn.remotePortsList ? conn.remotePortsList.length : 0;
+    
+    if (uniqueAddresses === 1 && uniqueRemotePorts <= 1) {
+      const address = conn.remoteAddressesList[0];
+      const port = conn.remotePortsList && conn.remotePortsList.length > 0 ? conn.remotePortsList[0] : null;
+      return `<span class="remote-connection">${address}${port ? ':' + port : ''}</span>`;
+    }
+    
+    return `<span class="remote-summary">${uniqueAddresses} address${uniqueAddresses > 1 ? 'es' : ''}, ${uniqueRemotePorts} port${uniqueRemotePorts !== 1 ? 's' : ''}</span>`;
   }
 
   /**
@@ -659,16 +1208,7 @@ class Dashboard {
    * Update filter status display
    */
   updateFilterStatus() {
-    const activeCount = this.getActiveFilterCount();
-    const refreshBtn = document.getElementById('refreshBtn');
-    
-    if (activeCount > 0) {
-      refreshBtn.textContent = `🔄 Refresh (${activeCount} filters)`;
-      refreshBtn.classList.add('has-filters');
-    } else {
-      refreshBtn.textContent = '🔄 Refresh';
-      refreshBtn.classList.remove('has-filters');
-    }
+    this.updateRefreshButtonText();
   }
 
   /**
@@ -708,25 +1248,124 @@ class Dashboard {
   /**
    * Update results counter display
    */
-  updateResultsCounter(count) {
+  updateResultsCounter(deduplicatedCount, filteredCount = null) {
     const tableContainer = document.querySelector('.table-container h2');
     if (tableContainer) {
       const total = this.connections.length;
-      if (count === total) {
-        tableContainer.textContent = `Live Network Connections (${total})`;
+      
+      if (filteredCount !== null && filteredCount !== deduplicatedCount) {
+        // Show deduplicated count and filtered count
+        if (deduplicatedCount === total) {
+          tableContainer.textContent = `Live Network Connections (${deduplicatedCount} unique, ${filteredCount} total)`;
+        } else {
+          tableContainer.textContent = `Live Network Connections (${deduplicatedCount} unique of ${filteredCount} filtered, ${total} total)`;
+        }
       } else {
-        tableContainer.textContent = `Live Network Connections (${count} of ${total})`;
+        // Show simple count
+        if (deduplicatedCount === total) {
+          tableContainer.textContent = `Live Network Connections (${total})`;
+        } else {
+          tableContainer.textContent = `Live Network Connections (${deduplicatedCount} of ${total})`;
+        }
       }
     }
+  }
+
+  /**
+   * Toggle auto-refresh functionality
+   */
+  toggleAutoRefresh() {
+    this.autoRefreshEnabled = !this.autoRefreshEnabled;
+    const toggleBtn = document.getElementById('autoRefreshToggle');
+    
+    if (this.autoRefreshEnabled) {
+      toggleBtn.textContent = '⏸️ Disable';
+      toggleBtn.classList.remove('btn-secondary');
+      toggleBtn.classList.add('btn-primary');
+      this.startAutoRefresh();
+    } else {
+      toggleBtn.textContent = '▶️ Enable';
+      toggleBtn.classList.remove('btn-primary');
+      toggleBtn.classList.add('btn-secondary');
+      this.stopAutoRefresh();
+    }
+  }
+
+  /**
+   * Start auto-refresh timer
+   */
+  startAutoRefresh() {
+    if (this.autoRefreshTimer) {
+      clearInterval(this.autoRefreshTimer);
+    }
+    
+    this.autoRefreshTimer = setInterval(() => {
+      this.loadInitialData();
+    }, this.autoRefreshInterval * 1000);
+    
+    // Update refresh button to show auto-refresh is active
+    this.updateRefreshButtonText();
+  }
+
+  /**
+   * Stop auto-refresh timer
+   */
+  stopAutoRefresh() {
+    if (this.autoRefreshTimer) {
+      clearInterval(this.autoRefreshTimer);
+      this.autoRefreshTimer = null;
+    }
+    
+    // Update refresh button to show auto-refresh is stopped
+    this.updateRefreshButtonText();
+  }
+
+  /**
+   * Update refresh button text to show auto-refresh status
+   */
+  updateRefreshButtonText() {
+    const refreshBtn = document.getElementById('refreshBtn');
+    const hasFilters = Object.values(this.filters).some(filter => filter !== '');
+    
+    if (this.autoRefreshEnabled) {
+      if (hasFilters) {
+        refreshBtn.textContent = `🔄 Auto-refresh (${this.autoRefreshInterval}s, filtered)`;
+      } else {
+        refreshBtn.textContent = `🔄 Auto-refresh (${this.autoRefreshInterval}s)`;
+      }
+      refreshBtn.classList.add('btn-primary');
+      refreshBtn.classList.remove('btn-secondary');
+    } else {
+      if (hasFilters) {
+        refreshBtn.textContent = `🔄 Refresh (filtered)`;
+        refreshBtn.classList.add('has-filters');
+      } else {
+        refreshBtn.textContent = '🔄 Refresh';
+        refreshBtn.classList.remove('has-filters');
+      }
+      refreshBtn.classList.remove('btn-primary');
+    }
+  }
+
+  /**
+   * Restart auto-refresh with new interval
+   */
+  restartAutoRefresh() {
+    this.stopAutoRefresh();
+    this.startAutoRefresh();
   }
 }
 
 // Initialize dashboard when DOM is loaded
-let dashboard;
+// Note: We assign the instance to window.dashboard explicitly to avoid the
+// browser's global ID-to-element mapping (the div with id="dashboard") from
+// shadowing our object. This fixes errors like
+// "window.dashboard.loadInitialData is not a function" where window.dashboard
+// was actually the DOM element, not the Dashboard instance.
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
-    dashboard = new Dashboard();
+    window.dashboard = new Dashboard();
   });
 } else {
-  dashboard = new Dashboard();
+  window.dashboard = new Dashboard();
 }

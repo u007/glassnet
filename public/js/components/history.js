@@ -8,9 +8,10 @@ class History {
     this.pageSize = 50;
     this.totalPages = 0;
     this.filters = {
-      days: 3,
+      range: '3d', // 15m,30m,1h,24h,3d,7d
       process: ''
     };
+    this.expanded = new Set(this.loadExpanded());
     this.connections = [];
     this.init();
   }
@@ -33,7 +34,7 @@ class History {
 
     // Filter controls
     document.getElementById('historyDays').addEventListener('change', (e) => {
-      this.filters.days = parseInt(e.target.value);
+      this.filters.range = e.target.value;
     });
 
     document.getElementById('historyProcess').addEventListener('change', (e) => {
@@ -62,9 +63,8 @@ class History {
       this.showLoading(true);
 
       // Calculate since timestamp
-      const sinceDate = new Date();
-      sinceDate.setDate(sinceDate.getDate() - this.filters.days);
-      const since = sinceDate.toISOString();
+  const sinceMs = this.parseRangeToMs(this.filters.range);
+  const since = new Date(Date.now() - sinceMs).toISOString();
 
       const params = new URLSearchParams({
         page: this.currentPage.toString(),
@@ -82,10 +82,9 @@ class History {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      
-      this.connections = data.connections || [];
-      this.renderHistory();
+  const data = await response.json();
+  this.connections = data.connections || [];
+  this.renderHistory();
       this.updatePagination(data);
 
       // Load process list for filter if empty
@@ -138,28 +137,48 @@ class History {
     if (this.connections.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="8" class="empty">
+          <td colspan="9" class="empty">
             No connections found for the selected time period
           </td>
         </tr>
       `;
       return;
     }
-
-    tbody.innerHTML = this.connections.map(conn => `
-      <tr>
-        <td>${this.formatDateTime(conn.timestamp)}</td>
-        <td title="${conn.process_name || 'Unknown'}">${this.truncateText(conn.process_name || 'Unknown', 20)}</td>
-        <td>${conn.user_name || 'Unknown'}</td>
-        <td><span class="protocol-${conn.protocol}">${conn.protocol.toUpperCase()}</span></td>
-        <td>${this.formatAddress(conn.local_address, conn.local_port)}</td>
-        <td>${this.formatAddress(conn.remote_address, conn.remote_port)}</td>
-        <td title="${this.getRemoteHostnameTooltip(conn)}">
-          ${this.formatRemoteHostname(conn)}
-        </td>
-        <td><span class="state-${conn.state?.toLowerCase().replace(/[_\s]/g, '_')}">${conn.state || 'UNKNOWN'}</span></td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = this.connections.map((conn, idx) => {
+      const connectionId = this.generateConnectionId(conn);
+      const expanded = this.expanded.has(connectionId);
+      return `
+        <tr data-history-id="${connectionId}">
+          <td>
+            <button class="expand-btn" onclick="historyComponent.toggleDetails('${connectionId}')" aria-expanded="${expanded}" title="${expanded ? 'Hide' : 'Show'} details">
+              <span class="expand-icon">${expanded ? '▼' : '▶'}</span>
+            </button>
+          </td>
+          <td>${this.formatDateTime(conn.timestamp)}</td>
+          <td title="${conn.process_name || 'Unknown'}">${this.truncateText(conn.process_name || 'Unknown', 20)}</td>
+          <td>${conn.user_name || 'Unknown'}</td>
+          <td><span class="protocol-${conn.protocol}">${conn.protocol.toUpperCase()}</span></td>
+          <td>${this.formatAddress(conn.local_address, conn.local_port)}</td>
+          <td>${this.formatAddress(conn.remote_address, conn.remote_port)}</td>
+          <td title="${this.getRemoteHostnameTooltip(conn)}">${this.formatRemoteHostname(conn)}</td>
+          <td><span class="state-${conn.state?.toLowerCase().replace(/[_\s]/g, '_')}">${conn.state || 'UNKNOWN'}</span></td>
+        </tr>
+        <tr id="history-details-${connectionId}" class="connection-details" style="display:${expanded ? 'table-row':'none'};">
+          <td colspan="9">
+            <div class="details-content">
+              ${this.renderDetails(conn, connectionId)}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    // Load process path for expanded rows
+    this.connections.forEach(conn => {
+      const id = this.generateConnectionId(conn);
+      if (this.expanded.has(id)) {
+        this.loadProcessDetails(id, conn.process_id);
+      }
+    });
   }
 
   /**
@@ -186,9 +205,9 @@ class History {
     const loadBtn = document.getElementById('loadHistoryBtn');
 
     if (show) {
-      tbody.innerHTML = `
+    tbody.innerHTML = `
         <tr>
-          <td colspan="8" class="loading">
+      <td colspan="9" class="loading">
             Loading historical data...
           </td>
         </tr>
@@ -208,7 +227,7 @@ class History {
     const tbody = document.getElementById('historyBody');
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="loading">
+  <td colspan="9" class="loading">
           Failed to load history: ${message}
           <br><button onclick="history.loadHistory()" class="btn btn-primary">Retry</button>
         </td>
@@ -336,6 +355,120 @@ class History {
    */
   resetPage() {
     this.currentPage = 1;
+  }
+
+  // --- New helper methods for enhanced history view ---
+  parseRangeToMs(range) {
+    const map = {
+      '15m': 15 * 60 * 1000,
+      '30m': 30 * 60 * 1000,
+      '1h': 60 * 60 * 1000,
+      '24h': 24 * 60 * 60 * 1000,
+      '3d': 3 * 24 * 60 * 60 * 1000,
+      '7d': 7 * 24 * 60 * 60 * 1000
+    };
+    return map[range] || (3 * 24 * 60 * 60 * 1000);
+  }
+
+  generateConnectionId(conn) {
+    return 'HID_' + btoa([
+      conn.process_id || '0',
+      conn.protocol || 'unknown',
+      conn.local_address || '*',
+      conn.local_port || '0',
+      conn.remote_address || '*',
+      conn.remote_port || '0',
+      conn.timestamp
+    ].join('|')).replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  renderDetails(conn, id) {
+    return `
+      <div class="connection-details-grid">
+        <div class="detail-section">
+          <h4>Process</h4>
+          <div class="detail-item"><span class="detail-label">Name:</span><span class="detail-value">${conn.process_name || 'Unknown'}</span></div>
+          <div class="detail-item"><span class="detail-label">PID:</span><span class="detail-value">${conn.process_id || 'N/A'}</span></div>
+          <div class="detail-item" id="history-path-${id}"><span class="detail-label">Executable Path:</span><span class="detail-value loading-text">Loading...</span></div>
+          <div class="detail-item" id="history-args-${id}"><span class="detail-label">Command Line:</span><span class="detail-value loading-text">Loading...</span></div>
+        </div>
+        <div class="detail-section">
+          <h4>Connection</h4>
+          <div class="detail-item"><span class="detail-label">Local:</span><span class="detail-value">${this.formatAddress(conn.local_address, conn.local_port)}</span></div>
+          <div class="detail-item"><span class="detail-label">Remote:</span><span class="detail-value">${this.formatAddress(conn.remote_address, conn.remote_port)}</span></div>
+          <div class="detail-item"><span class="detail-label">Hostname:</span><span class="detail-value">${conn.remote_hostname || 'N/A'}</span></div>
+          <div class="detail-item"><span class="detail-label">State:</span><span class="detail-value">${conn.state || 'UNKNOWN'}</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  toggleDetails(id) {
+    const row = document.getElementById(`history-details-${id}`);
+    const btn = document.querySelector(`[data-history-id="${id}"] .expand-btn`);
+    if (!row || !btn) return;
+    const icon = btn.querySelector('.expand-icon');
+    const expanded = row.style.display === 'table-row';
+    if (expanded) {
+      row.style.display = 'none';
+      icon.textContent = '▶';
+      btn.setAttribute('aria-expanded','false');
+      this.expanded.delete(id);
+    } else {
+      row.style.display = 'table-row';
+      icon.textContent = '▼';
+      btn.setAttribute('aria-expanded','true');
+      this.expanded.add(id);
+      this.loadProcessDetails(id, this.connections.find(c => this.generateConnectionId(c) === id)?.process_id);
+    }
+    this.saveExpanded();
+  }
+
+  async loadProcessDetails(id, pid) {
+    if (!pid) {
+      this.updateHistoryProcessDetails(id,'N/A','N/A');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/process/${pid}`);
+      if (res.ok) {
+        const info = await res.json();
+        this.updateHistoryProcessDetails(id, info.executablePath || 'N/A', info.commandLine || 'N/A');
+      } else {
+        this.updateHistoryProcessDetails(id,'N/A','N/A');
+      }
+    } catch(e) {
+      console.warn('History process detail load failed', e);
+      this.updateHistoryProcessDetails(id,'Error','Error');
+    }
+  }
+
+  updateHistoryProcessDetails(id, path, args) {
+    const pathEl = document.getElementById(`history-path-${id}`);
+    const argsEl = document.getElementById(`history-args-${id}`);
+    if (pathEl) {
+      const val = pathEl.querySelector('.detail-value');
+      val.classList.remove('loading-text');
+      val.innerHTML = (path === 'N/A' || path === 'Error') ? path : `<span class="path-text">${this.escapeHtml(path)}</span>`;
+    }
+    if (argsEl) {
+      const val = argsEl.querySelector('.detail-value');
+      val.classList.remove('loading-text');
+      val.innerHTML = (args === 'N/A' || args === 'Error') ? args : `<span class="command-line-text">${this.escapeHtml(args)}</span>`;
+    }
+  }
+
+  loadExpanded() {
+    try { return JSON.parse(localStorage.getItem('glassnet-history-expanded')||'[]'); } catch { return []; }
+  }
+  saveExpanded() {
+    localStorage.setItem('glassnet-history-expanded', JSON.stringify(Array.from(this.expanded)));
+  }
+
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
   }
 }
 
