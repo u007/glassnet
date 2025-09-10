@@ -22,6 +22,14 @@
                         <span id="statusIcon" class="status-icon">⚫</span>
                         <span id="statusText">Connecting...</span>
                     </div>
+                    <div class="mode-toggle">
+                        <button id="simpleModeBtn" class="mode-btn active" data-mode="simple" title="Simple mode - Basic connection info">
+                            📋 Simple
+                        </button>
+                        <button id="expertModeBtn" class="mode-btn" data-mode="expert" title="Expert mode - Advanced details and filters">
+                            🔧 Expert
+                        </button>
+                    </div>
                     <button id="clearLogsBtn" class="btn btn-danger" title="Clear all logs">
                         🗑️ Clear Logs
                     </button>
@@ -69,8 +77,8 @@
                     </div>
                 </div>
 
-                <!-- Filters -->
-                <div class="filters">
+                <!-- Expert Filters (hidden in simple mode) -->
+                <div id="expertFilters" class="filters">
                     <div class="filter-group">
                         <label for="protocolFilter">Protocol:</label>
                         <select id="protocolFilter">
@@ -146,11 +154,20 @@
                     </div>
                 </div>
 
+                <!-- Simple Mode Basic Info -->
+                <div id="simpleModeInfo" class="simple-mode-info">
+                    <div class="simple-controls">
+                        <button id="simpleRefreshBtn" class="btn btn-primary">🔄 Refresh</button>
+                        <span id="simpleLastRefresh" class="refresh-info">Last: --</span>
+                    </div>
+                </div>
+
                 <!-- Live Connections Table -->
                 <div class="table-container">
                     <h2>Live Network Connections</h2>
                     <div class="table-wrapper">
-                        <table id="connectionsTable" class="data-table">
+                        <!-- Expert Mode Table -->
+                        <table id="expertTable" class="data-table expert-table">
                             <thead>
                                 <tr>
                                     <th class="expand-column"></th>
@@ -167,6 +184,23 @@
                             <tbody id="connectionsBody">
                                 <tr>
                                     <td colspan="9" class="loading">Loading connections...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <!-- Simple Mode Table -->
+                        <table id="simpleTable" class="data-table simple-table" style="display: none;">
+                            <thead>
+                                <tr>
+                                    <th>Program</th>
+                                    <th>Connected To</th>
+                                    <th>Port</th>
+                                    <th>Protocol</th>
+                                </tr>
+                            </thead>
+                            <tbody id="simpleConnectionsBody">
+                                <tr>
+                                    <td colspan="4" class="loading">Loading connections...</td>
                                 </tr>
                             </tbody>
                         </table>

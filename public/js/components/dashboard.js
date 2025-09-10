@@ -7,10 +7,15 @@ class Dashboard {
     this.instanceId = Math.random().toString(36).substring(2, 8);
     console.log(`Dashboard instance created: ${this.instanceId}`);
 
-    this.connectionsBody = document.getElementById('connections-body');
+    this.connectionsBody = document.getElementById('connectionsBody');
+    this.simpleConnectionsBody = document.getElementById('simpleConnectionsBody');
     this.autoRefreshToggle = document.getElementById('autoRefreshToggle');
     this.lastRefreshInfo = document.getElementById('lastRefreshInfo');
     this.nextRefreshInfo = document.getElementById('nextRefreshInfo');
+    this.simpleLastRefresh = document.getElementById('simpleLastRefresh');
+    
+    // Get current mode from app or localStorage
+    this.currentMode = localStorage.getItem('glassnet-mode') || 'simple';
     
     this.filters = {
       protocol: '',
@@ -55,10 +60,12 @@ class Dashboard {
     this.setupWebSocketListeners();
     
     // Auto-refresh toggle initialization
-    this.autoRefreshToggle.checked = this.autoRefresh.enabled;
-    this.autoRefreshToggle.addEventListener('change', (e) => {
-      this.setAutoRefreshEnabled(e.target.checked);
-    });
+    if (this.autoRefreshToggle) {
+      this.autoRefreshToggle.checked = this.autoRefresh.enabled;
+      this.autoRefreshToggle.addEventListener('change', (e) => {
+        this.setAutoRefreshEnabled(e.target.checked);
+      });
+    }
 
     if (this.autoRefresh.enabled) {
         this.scheduleAutoRefresh();
@@ -71,6 +78,14 @@ class Dashboard {
    * Setup event listeners
    */
   setupEventListeners() {
+    // Simple mode refresh button
+    const simpleRefreshBtn = document.getElementById('simpleRefreshBtn');
+    if (simpleRefreshBtn) {
+      simpleRefreshBtn.addEventListener('click', () => {
+        this.loadSimpleConnections();
+      });
+    }
+
     // Filter controls
     document.getElementById('protocolFilter').addEventListener('change', (e) => {
       this.filters.protocol = e.target.value;
@@ -169,6 +184,140 @@ class Dashboard {
     });
   }
 
+  onModeChange(mode) {
+    this.currentMode = mode;
+    if (mode === 'simple') {
+      this.loadSimpleConnections();
+    } else {
+      this.loadConnections();
+    }
+  }
+
+  async loadSimpleConnections() {
+    try {
+      const response = await fetch('/api/connections?limit=100');
+      const data = await response.json();
+
+      this.connections = data.connections || [];
+      this.renderSimpleConnections();
+      
+      // Update last refresh time
+      this.lastRefresh = Date.now();
+      if (this.simpleLastRefresh) {
+        this.simpleLastRefresh.textContent = 'Last: ' + new Date(this.lastRefresh).toLocaleTimeString();
+      }
+      
+    } catch (error) {
+      console.error('Error loading simple connections:', error);
+      this.showSimpleConnectionsError();
+    }
+  }
+
+  renderSimpleConnections() {
+    const tbody = this.simpleConnectionsBody;
+    if (!tbody) return;
+
+    // Filter out connections without process ID and get unique process-remote combinations
+    const simpleConnections = this.getSimpleConnections();
+
+    if (simpleConnections.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="4" class="empty">
+            ${this.connections.length === 0 ? 'No connections found' : 'No active connections'}
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = simpleConnections.map((conn, index) => {
+      const connectionId = this.generateSimpleConnectionId(conn);
+      return `
+        <tr class="${conn.isNew ? 'new-connection' : ''} dark-row" data-connection-id="${connectionId}">
+          <td title="${conn.process_name || 'Unknown'}">
+            <span class="process-name">${conn.process_name || 'Unknown'}</span>
+          </td>
+          <td>
+            ${this.formatRemoteConnectionWithHostname(conn)}
+          </td>
+          <td>
+            <span class="port-badge">${conn.remote_port || 'N/A'}</span>
+          </td>
+          <td>
+            <span class="protocol-badge protocol-${conn.protocol}">${conn.protocol ? conn.protocol.toUpperCase() : 'N/A'}</span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  getSimpleConnections() {
+    // Filter out connections without process ID and group by process-remote combination
+    const validConnections = this.connections.filter(conn => 
+      conn.process_id && conn.process_id !== 'N/A' && conn.process_id !== 0
+    );
+
+    // Group by process name and remote address to show unique connections
+    const uniqueConnections = new Map();
+    
+    validConnections.forEach(conn => {
+      const key = `${conn.process_name}-${conn.remote_address}-${conn.remote_port}-${conn.protocol}`;
+      
+      if (!uniqueConnections.has(key)) {
+        uniqueConnections.set(key, {
+          ...conn,
+          isNew: conn.isNew
+        });
+      }
+    });
+
+    return Array.from(uniqueConnections.values()).sort((a, b) => 
+      new Date(b.timestamp) - new Date(a.timestamp)
+    );
+  }
+
+  generateSimpleConnectionId(conn) {
+    const key = `${conn.process_name}-${conn.remote_address}-${conn.remote_port}-${conn.protocol}`;
+    return 'SIMPLE_' + btoa(key).replace(/[^a-zA-Z0-9]/g, '');
+  }
+
+  formatRemoteConnectionWithHostname(conn) {
+    const address = conn.remote_address;
+    const port = conn.remote_port;
+    const hostname = conn.remote_hostname;
+
+    if (!address || address === '*') {
+      return '<span class="no-connections">No remote connection</span>';
+    }
+
+    // If we have a hostname and it's different from the IP, show both
+    if (hostname && hostname !== address) {
+      return `
+        <div class="hostname-info">
+          <span class="hostname-primary">${hostname}</span>
+          <span class="hostname-secondary">${address}</span>
+        </div>
+      `;
+    }
+
+    // Otherwise just show IP
+    return `<span class="hostname-primary">${address}</span>`;
+  }
+
+  showSimpleConnectionsError() {
+    const tbody = this.simpleConnectionsBody;
+    if (!tbody) return;
+    
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="loading">
+          Failed to load connections. <button onclick="window.dashboard.loadSimpleConnections()" class="btn btn-primary">Retry</button>
+        </td>
+      </tr>
+    `;
+  }
+
   /**
    * Load initial data
    */
@@ -177,11 +326,17 @@ class Dashboard {
       // Load statistics
       await this.loadStatistics();
       
-      // Load recent connections
-      await this.loadConnections();
+      // Load recent connections based on current mode
+      if (this.currentMode === 'simple') {
+        await this.loadSimpleConnections();
+      } else {
+        await this.loadConnections();
+      }
       
-      // Load process list for filter
-      await this.loadProcessList();
+      // Load process list for filter (only in expert mode)
+      if (this.currentMode === 'expert') {
+        await this.loadProcessList();
+      }
 
       // Setup tooltips and UI enhancements
       this.setupTooltips();
@@ -296,7 +451,12 @@ class Dashboard {
       this.connections = this.connections.slice(0, 500);
     }
 
-    this.renderConnections();
+    // Render based on current mode
+    if (this.currentMode === 'simple') {
+      this.renderSimpleConnections();
+    } else {
+      this.renderConnections();
+    }
     
     // Update statistics
     this.loadStatistics();
@@ -311,7 +471,11 @@ class Dashboard {
       newConnections.forEach(conn => {
         conn.isNew = false;
       });
-      this.renderConnections();
+      if (this.currentMode === 'simple') {
+        this.renderSimpleConnections();
+      } else {
+        this.renderConnections();
+      }
     }, 30000);
   }
 
@@ -1098,7 +1262,9 @@ class Dashboard {
    * Setup column resizing
    */
   setupColumnResizing() {
-    const table = document.getElementById('connectionsTable');
+    const table = document.getElementById('expertTable');
+    if (!table) return; // Don't setup column resizing if expert table doesn't exist
+    
     const headers = table.querySelectorAll('th');
     
     headers.forEach((header, index) => {
@@ -1363,7 +1529,11 @@ class Dashboard {
     this.autoRefresh.timer = setInterval(() => {
       console.log(`[${this.instanceId}] Refresh timer fired.`);
       if (this.autoRefresh.enabled) {
-        this.loadConnections();
+        if (this.currentMode === 'simple') {
+          this.loadSimpleConnections();
+        } else {
+          this.loadConnections();
+        }
       }
     }, this.autoRefresh.interval * 1000);
 
@@ -1388,6 +1558,8 @@ class Dashboard {
   /** Update refresh button text */
   updateRefreshButtonText() {
     const refreshBtn = document.getElementById('refreshBtn');
+    if (!refreshBtn) return;
+    
     const hasFilters = Object.values(this.filters).some(filter => filter !== '');
     
     if (this.autoRefresh.enabled) {
