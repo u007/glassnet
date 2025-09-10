@@ -75,6 +75,16 @@ class Dashboard {
   }
 
   /**
+   * Handle mode change (simple/expert)
+   */
+  onModeChange(mode) {
+    // Apply column widths when switching to ensure proper sizing
+    setTimeout(() => {
+      this.applyColumnWidths();
+    }, 50); // Small delay to ensure DOM is ready
+  }
+
+  /**
    * Setup event listeners
    */
   setupEventListeners() {
@@ -204,7 +214,9 @@ class Dashboard {
       // Update last refresh time
       this.lastRefresh = Date.now();
       if (this.simpleLastRefresh) {
-        this.simpleLastRefresh.textContent = 'Last: ' + new Date(this.lastRefresh).toLocaleTimeString();
+        const timeSince = Date.now() - this.lastRefresh;
+        this.simpleLastRefresh.textContent = 'Last: ' + this.formatDuration(timeSince);
+        this.simpleLastRefresh.title = 'Last refresh: ' + new Date(this.lastRefresh).toLocaleString();
       }
       
     } catch (error) {
@@ -341,6 +353,9 @@ class Dashboard {
       // Setup tooltips and UI enhancements
       this.setupTooltips();
       
+      // Start meta timer for continuous refresh time updates
+      this.startMetaTimer();
+      
     } catch (error) {
       console.error('Error loading initial data:', error);
       this.showToast('Failed to load data', 'error');
@@ -384,6 +399,11 @@ class Dashboard {
 
       this.connections = data.connections || [];
       this.renderConnections();
+
+      // Update last refresh time for proper auto-refresh timing
+      this.lastRefresh = Date.now();
+      this.nextRefreshAt = this.lastRefresh + (this.autoRefresh.interval * 1000);
+      this.updateRefreshMeta();
 
       // Cleanup old expanded connection IDs periodically
       this.cleanupExpandedConnections();
@@ -460,11 +480,6 @@ class Dashboard {
     
     // Update statistics
     this.loadStatistics();
-
-    // Show notification for significant connections
-    if (newConnections.length > 0) {
-      this.showNewConnectionNotification(newConnections);
-    }
 
     // Remove "new" flag after 30 seconds
     setTimeout(() => {
@@ -1078,27 +1093,38 @@ class Dashboard {
     }
   }
 
-  /**
-   * Show notification for new connections
-   */
-  showNewConnectionNotification(connections) {
-    if (connections.length === 1) {
-      const conn = connections[0];
-      this.showToast(
-        `New connection: ${conn.process_name} → ${conn.remote_address}:${conn.remote_port}`,
-        'info'
-      );
-    } else if (connections.length > 1) {
-      this.showToast(`${connections.length} new connections detected`, 'info');
-    }
-  }
-
+  
   /**
    * Format time for display
    */
   formatTime(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString();
+    return date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  }
+
+  /**
+   * Format duration in human-readable terms
+   */
+  formatDuration(milliseconds) {
+    const seconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) {
+      return `${days}d ${hours % 24}h ago`;
+    } else if (hours > 0) {
+      return `${hours}h ${minutes % 60}m ago`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s ago`;
+    } else {
+      return `${seconds}s ago`;
+    }
   }
 
   /**
@@ -1106,7 +1132,15 @@ class Dashboard {
    */
   formatFullTime(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleString();
+    return date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
   }
 
   /**
@@ -1260,63 +1294,101 @@ class Dashboard {
   }
 
   /**
-   * Setup column resizing
+   * Setup column resizing for both expert and simple tables
    */
   setupColumnResizing() {
-    const table = document.getElementById('expertTable');
-    if (!table) return; // Don't setup column resizing if expert table doesn't exist
+    // Setup expert table resizing
+    this.setupTableColumnResizing('expertTable', 'expert');
+    
+    // Setup simple table resizing
+    this.setupTableColumnResizing('simpleTable', 'simple');
+  }
+
+  /**
+   * Setup column resizing for a specific table
+   */
+  setupTableColumnResizing(tableId, tableType) {
+    const table = document.getElementById(tableId);
+    if (!table) return; // Don't setup column resizing if table doesn't exist
     
     const headers = table.querySelectorAll('th');
     
     headers.forEach((header, index) => {
+      // Add resizable class for visual feedback
+      header.classList.add('resizable');
       header.style.position = 'relative';
-      header.style.minWidth = '100px';
+      header.style.minWidth = '80px';
       
-      // Create resize handle
-      const resizeHandle = document.createElement('div');
-      resizeHandle.className = 'resize-handle';
-      resizeHandle.style.position = 'absolute';
-      resizeHandle.style.top = '0';
-      resizeHandle.style.right = '0';
-      resizeHandle.style.width = '5px';
-      resizeHandle.style.height = '100%';
-      resizeHandle.style.cursor = 'col-resize';
-      resizeHandle.style.backgroundColor = 'transparent';
+      // Don't allow resizing of expand column (expert table only)
+      if (header.classList.contains('expand-column')) {
+        header.classList.remove('resizable');
+        return;
+      }
       
-      header.appendChild(resizeHandle);
+      // Create unique storage key for this table type
+      const storageKey = `glassnet-column-widths-${tableType}`;
       
       let isResizing = false;
       let startX = 0;
       let startWidth = 0;
       
-      resizeHandle.addEventListener('mousedown', (e) => {
+      const startResize = (e) => {
         isResizing = true;
         startX = e.clientX;
         startWidth = parseInt(document.defaultView.getComputedStyle(header).width, 10);
+        header.classList.add('resizing');
         document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
         e.preventDefault();
-      });
+      };
       
-      document.addEventListener('mousemove', (e) => {
+      const doResize = (e) => {
         if (!isResizing) return;
         
         const width = startWidth + e.clientX - startX;
-        const minWidth = 80;
-        const maxWidth = 400;
+        const minWidth = tableType === 'simple' ? 60 : 80;
+        const maxWidth = tableType === 'simple' ? 400 : 500;
         
         if (width >= minWidth && width <= maxWidth) {
           header.style.width = width + 'px';
-          this.columnWidths[index] = width;
+          
+          // Save width for this specific table
+          if (!this.columnWidths[tableType]) {
+            this.columnWidths[tableType] = {};
+          }
+          this.columnWidths[tableType][index] = width;
         }
-      });
+      };
       
-      document.addEventListener('mouseup', () => {
+      const stopResize = () => {
         if (isResizing) {
           isResizing = false;
+          header.classList.remove('resizing');
           document.body.style.cursor = '';
+          document.body.style.userSelect = '';
           this.saveColumnWidths();
         }
-      });
+      };
+      
+      // Use the header's resize handle (CSS-based)
+      header.addEventListener('mousedown', startResize);
+      document.addEventListener('mousemove', doResize);
+      document.addEventListener('mouseup', stopResize);
+      
+      // Also create a fallback resize handle for better compatibility
+      const resizeHandle = document.createElement('div');
+      resizeHandle.className = 'resize-handle';
+      resizeHandle.style.position = 'absolute';
+      resizeHandle.style.top = '0';
+      resizeHandle.style.right = '0';
+      resizeHandle.style.width = '8px';
+      resizeHandle.style.height = '100%';
+      resizeHandle.style.cursor = 'col-resize';
+      resizeHandle.style.backgroundColor = 'transparent';
+      resizeHandle.style.zIndex = '1';
+      header.appendChild(resizeHandle);
+      
+      resizeHandle.addEventListener('mousedown', startResize);
     });
   }
 
@@ -1327,12 +1399,26 @@ class Dashboard {
     const saved = localStorage.getItem('glassnet-column-widths');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        
+        // Handle legacy format (flat array) and new format (object with table types)
+        if (Array.isArray(parsed)) {
+          // Convert legacy format to new format
+          return {
+            expert: parsed,
+            simple: {}
+          };
+        }
+        
+        return parsed;
       } catch (e) {
         console.warn('Failed to parse saved column widths:', e);
       }
     }
-    return {};
+    return {
+      expert: {},
+      simple: {}
+    };
   }
 
   /**
@@ -1343,17 +1429,28 @@ class Dashboard {
   }
 
   /**
-   * Apply saved column widths
+   * Apply saved column widths to both tables
    */
   applyColumnWidths() {
-    const table = document.getElementById('expertTable');
+    // Apply to expert table
+    this.applyTableColumnWidths('expertTable', 'expert');
+    
+    // Apply to simple table
+    this.applyTableColumnWidths('simpleTable', 'simple');
+  }
+
+  /**
+   * Apply saved column widths to a specific table
+   */
+  applyTableColumnWidths(tableId, tableType) {
+    const table = document.getElementById(tableId);
     if (!table) return;
     
     const headers = table.querySelectorAll('th');
     
     headers.forEach((header, index) => {
-      if (this.columnWidths[index]) {
-        header.style.width = this.columnWidths[index] + 'px';
+      if (this.columnWidths[tableType] && this.columnWidths[tableType][index]) {
+        header.style.width = this.columnWidths[tableType][index] + 'px';
       }
     });
   }
@@ -1495,6 +1592,8 @@ class Dashboard {
       this.clearAutoRefreshTimer();
       this.nextRefreshAt = null;
       this.updateRefreshMeta();
+      // Start meta timer to keep updating "Last" time even when auto-refresh is disabled
+      this.startMetaTimer();
     }
     
     this.updateRefreshButtonText();
@@ -1516,7 +1615,7 @@ class Dashboard {
     }
   }
 
-  scheduleAutoRefresh() {
+  scheduleAutoRefresh(force = false) {
     console.log(`[${this.instanceId}] scheduleAutoRefresh called.`);
     // Clear any existing timer first
     this.clearAutoRefreshTimer(); 
@@ -1549,7 +1648,8 @@ class Dashboard {
   startMetaTimer() {
     if (this.metaTimer) return;
     this.metaTimer = setInterval(() => {
-      if (!this.autoRefresh.enabled && !this.nextRefreshAt) {
+      // Keep running if auto-refresh is enabled OR if we have a last refresh time to show
+      if (!this.autoRefresh.enabled && !this.nextRefreshAt && !this.lastRefresh) {
         clearInterval(this.metaTimer);
         this.metaTimer = null;
         return;
@@ -1591,17 +1691,26 @@ class Dashboard {
     const nextEl = document.getElementById('nextRefreshInfo');
     if (lastEl) {
       if (this.lastRefresh) {
-        lastEl.textContent = 'Last: ' + new Date(this.lastRefresh).toLocaleTimeString();
+        const timeSince = Date.now() - this.lastRefresh;
+        lastEl.textContent = 'Last: ' + this.formatDuration(timeSince);
+        lastEl.title = 'Last refresh: ' + new Date(this.lastRefresh).toLocaleString();
       } else {
         lastEl.textContent = 'Last: --';
+        lastEl.title = 'No refresh yet';
       }
     }
     if (nextEl) {
       if (this.autoRefresh.enabled && this.nextRefreshAt) {
         const secs = Math.max(0, Math.round((this.nextRefreshAt - Date.now())/1000));
-        nextEl.textContent = 'Next: ' + secs + 's';
+        if (secs === 0) {
+          nextEl.textContent = 'Next: refreshing...';
+        } else {
+          nextEl.textContent = 'Next: ' + secs + 's';
+        }
+        nextEl.title = 'Next refresh in ' + secs + ' seconds';
       } else {
         nextEl.textContent = 'Next: --';
+        nextEl.title = 'Auto-refresh disabled';
       }
     }
   }

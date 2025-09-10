@@ -79,78 +79,93 @@
 
                 <!-- Expert Filters (hidden in simple mode) -->
                 <div id="expertFilters" class="filters">
-                    <div class="filter-group">
-                        <label for="protocolFilter">Protocol:</label>
-                        <select id="protocolFilter">
-                            <option value="">All</option>
-                            <option value="tcp">TCP</option>
-                            <option value="udp">UDP</option>
-                        </select>
+                    <!-- Connection Filters Row -->
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label for="protocolFilter">Protocol:</label>
+                            <select id="protocolFilter">
+                                <option value="">All</option>
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="processFilter">Process:</label>
+                            <select id="processFilter">
+                                <option value="">All Processes</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="stateFilter">State:</label>
+                            <select id="stateFilter">
+                                <option value="">All States</option>
+                                <option value="ESTABLISHED">ESTABLISHED</option>
+                                <option value="LISTEN">LISTEN</option>
+                                <option value="TIME_WAIT">TIME_WAIT</option>
+                                <option value="CLOSE_WAIT">CLOSE_WAIT</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="filter-group">
-                        <label for="processFilter">Process:</label>
-                        <select id="processFilter">
-                            <option value="">All Processes</option>
-                        </select>
+
+                    <!-- Port Filters Row -->
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label for="portFilter">Port/Range:</label>
+                            <input type="text" id="portFilter" placeholder="80, 80-443, 80,443" title="Enter port number, range (80-443), or comma-separated ports (80,443)">
+                        </div>
+                        <div class="filter-group">
+                            <label for="portRangeFilter">Port Range:</label>
+                            <select id="portRangeFilter">
+                                <option value="">Custom Range</option>
+                                <option value="1-1023">Well-known (1-1023)</option>
+                                <option value="1024-49151">Registered (1024-49151)</option>
+                                <option value="49152-65535">Dynamic (49152-65535)</option>
+                                <option value="80-443">Web (80-443)</option>
+                                <option value="1433-5432">Database (1433-5432)</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="popularPortsFilter">Popular Ports:</label>
+                            <select id="popularPortsFilter">
+                                <option value="">Select Category</option>
+                                <option value="popular:Web Servers">Web Servers</option>
+                                <option value="popular:SSH/Remote">SSH/Remote</option>
+                                <option value="popular:Email">Email</option>
+                                <option value="popular:DNS">DNS</option>
+                                <option value="popular:Database">Database</option>
+                                <option value="popular:File Transfer">File Transfer</option>
+                                <option value="popular:VPN">VPN</option>
+                                <option value="popular:Gaming">Gaming</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="filter-group">
-                        <label for="stateFilter">State:</label>
-                        <select id="stateFilter">
-                            <option value="">All States</option>
-                            <option value="ESTABLISHED">ESTABLISHED</option>
-                            <option value="LISTEN">LISTEN</option>
-                            <option value="TIME_WAIT">TIME_WAIT</option>
-                            <option value="CLOSE_WAIT">CLOSE_WAIT</option>
-                        </select>
+
+                    <!-- Action Controls Row -->
+                    <div class="filter-row">
+                        <div class="filter-actions">
+                            <button id="clearPortFilters" class="btn btn-secondary" title="Clear port filters">🗑️</button>
+                            <button id="refreshBtn" class="btn btn-primary">🔄 Refresh</button>
+                            <span id="lastRefreshInfo" class="refresh-info" title="Last refresh time">Last: --</span>
+                            <span id="nextRefreshInfo" class="refresh-info" title="Seconds until next auto refresh">Next: --</span>
+                        </div>
                     </div>
-                    <div class="filter-group">
-                        <label for="portFilter">Port/Range:</label>
-                        <input type="text" id="portFilter" placeholder="80, 80-443, 80,443" title="Enter port number, range (80-443), or comma-separated ports (80,443)">
-                    </div>
-                    <div class="filter-group">
-                        <label for="portRangeFilter">Port Range:</label>
-                        <select id="portRangeFilter">
-                            <option value="">Custom Range</option>
-                            <option value="1-1023">Well-known (1-1023)</option>
-                            <option value="1024-49151">Registered (1024-49151)</option>
-                            <option value="49152-65535">Dynamic (49152-65535)</option>
-                            <option value="80-443">Web (80-443)</option>
-                            <option value="1433-5432">Database (1433-5432)</option>
-                        </select>
-                    </div>
-                    <div class="filter-group">
-                        <label for="popularPortsFilter">Popular Ports:</label>
-                        <select id="popularPortsFilter">
-                            <option value="">Select Category</option>
-                            <option value="popular:Web Servers">Web Servers</option>
-                            <option value="popular:SSH/Remote">SSH/Remote</option>
-                            <option value="popular:Email">Email</option>
-                            <option value="popular:DNS">DNS</option>
-                            <option value="popular:Database">Database</option>
-                            <option value="popular:File Transfer">File Transfer</option>
-                            <option value="popular:VPN">VPN</option>
-                            <option value="popular:Gaming">Gaming</option>
-                        </select>
-                    </div>
-                    <button id="clearPortFilters" class="btn btn-secondary" title="Clear port filters">🗑️</button>
-                    <button id="refreshBtn" class="btn btn-primary">🔄 Refresh</button>
-                    <span id="lastRefreshInfo" class="refresh-info" title="Last refresh time">Last: --</span>
-                    <span id="nextRefreshInfo" class="refresh-info" title="Seconds until next auto refresh">Next: --</span>
                     
-                    <!-- Auto-refresh controls -->
-                    <div class="filter-group">
-                        <label for="autoRefreshToggle">Auto Refresh:</label>
-                        <button id="autoRefreshToggle" class="btn btn-secondary" title="Toggle auto-refresh">▶️ Enable</button>
-                    </div>
-                    <div class="filter-group">
-                        <label for="refreshInterval">Interval (sec):</label>
-                        <select id="refreshInterval">
-                            <option value="5">5 seconds</option>
-                            <option value="10" selected>10 seconds</option>
-                            <option value="15">15 seconds</option>
-                            <option value="30">30 seconds</option>
-                            <option value="60">1 minute</option>
-                        </select>
+                    <!-- Auto-refresh Controls Row -->
+                    <div class="filter-row">
+                        <div class="filter-group">
+                            <label for="autoRefreshToggle">Auto Refresh:</label>
+                            <button id="autoRefreshToggle" class="btn btn-secondary" title="Toggle auto-refresh">▶️ Enable</button>
+                        </div>
+                        <div class="filter-group">
+                            <label for="refreshInterval">Interval (sec):</label>
+                            <select id="refreshInterval">
+                                <option value="5">5 seconds</option>
+                                <option value="10" selected>10 seconds</option>
+                                <option value="15">15 seconds</option>
+                                <option value="30">30 seconds</option>
+                                <option value="60">1 minute</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 

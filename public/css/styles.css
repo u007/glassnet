@@ -156,17 +156,57 @@ body {
   padding: 0.75rem;
   text-align: left;
   font-weight: 600;
+  border: 1px solid var(--border-color);
   border-bottom: 2px solid var(--border-color);
   color: var(--text-primary);
+  position: relative;
 }
 
 .simple-table td {
   padding: 0.75rem;
-  border-bottom: 1px solid var(--border-color);
+  border: 1px solid var(--border-color);
+  border-top: none;
 }
 
 .simple-table tr:hover {
   background: var(--background-color);
+}
+
+/* Simple table specific resize styles */
+.simple-table th::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  background: transparent;
+  cursor: col-resize;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.simple-table th:hover::after {
+  background-color: var(--primary-color);
+  opacity: 0.3;
+}
+
+.simple-table th.resizing::after {
+  background-color: var(--primary-color);
+  opacity: 0.8;
+}
+
+.simple-table th.resizing {
+  background-color: var(--background-color);
+  box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
+.simple-table th.resizable {
+  border-right: 2px solid var(--border-color);
+}
+
+.simple-table th.resizable:hover {
+  border-right-color: var(--primary-color);
 }
 
 .hostname-info {
@@ -300,10 +340,125 @@ body {
   border-radius: 0.75rem;
   box-shadow: var(--shadow);
   margin-bottom: 2rem;
-  display: flex;
+  display: grid;
   gap: 1rem;
-  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: start;
+}
+
+/* Column span variations for better balance */
+.filter-row:nth-child(2) .filter-group:nth-child(1) { /* Port/Range input - make it wider */
+  grid-column: span 2;
+}
+
+/* Ensure filter-actions always spans full width */
+.filter-actions {
+  grid-column: 1 / -1;
+}
+
+/* Filter rows for better organization */
+.filter-row {
+  display: contents;
+}
+
+/* Visual separation between filter rows */
+.filter-row:not(:last-child) .filter-group::after {
+  content: '';
+  position: absolute;
+  bottom: -0.5rem;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-color);
+  opacity: 0.3;
+}
+
+.filter-group {
+  position: relative;
+}
+
+/* Filter actions styling */
+.filter-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-start;
+  margin: 0.5rem 0;
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--background-color);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+/* Responsive filter layout */
+@media (min-width: 1200px) {
+  .filters {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (min-width: 1025px) and (max-width: 1199px) {
+  .filters {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .filters {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .filters {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .filter-group {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+  }
+  
+  .filter-group label {
+    min-width: 120px;
+    flex-shrink: 0;
+    font-size: 0.875rem;
+  }
+  
+  .filter-group select,
+  .filter-group input {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.875rem;
+  }
+  
+  .filter-group input[type="text"] {
+    min-width: 0;
+  }
+  
+  .filter-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .filter-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .filter-actions .refresh-info {
+    width: 100%;
+    text-align: center;
+    margin-top: 0.5rem;
+  }
 }
 
 .filter-group {
@@ -436,11 +591,13 @@ body {
   text-align: left;
   font-weight: 600;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color);
+  border: 1px solid var(--border-color);
+  border-bottom: 2px solid var(--border-color);
   position: sticky;
   top: 0;
   z-index: 10;
   user-select: none;
+  position: relative;
 }
 
 .data-table th.expand-column {
@@ -451,7 +608,8 @@ body {
 
 .data-table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-color);
+  border: 1px solid var(--border-color);
+  border-top: none;
   font-size: 0.875rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -705,6 +863,38 @@ body {
 }
 
 /* Column resizing */
+.data-table th {
+  position: relative;
+}
+
+.data-table th::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  background: transparent;
+  cursor: col-resize;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.data-table th:hover::after {
+  background-color: var(--primary-color);
+  opacity: 0.3;
+}
+
+.data-table th.resizing::after {
+  background-color: var(--primary-color);
+  opacity: 0.8;
+}
+
+.data-table th.resizing {
+  background-color: var(--background-color);
+  box-shadow: inset 0 0 0 2px var(--primary-color);
+}
+
 .resize-handle {
   background-color: transparent;
   transition: background-color 0.2s ease;
@@ -719,6 +909,15 @@ body {
 .resize-handle:active {
   background-color: var(--primary-color) !important;
   opacity: 0.8;
+}
+
+/* Visual feedback for resizable columns */
+.data-table th.resizable {
+  border-right: 2px solid var(--border-color);
+}
+
+.data-table th.resizable:hover {
+  border-right-color: var(--primary-color);
 }
 
 /* Protocol badges */
@@ -937,18 +1136,9 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .filters,
   .history-controls {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .filter-group {
-    min-width: auto;
-  }
-
-  .filter-group input[type="text"] {
-    min-width: auto;
   }
 
   .nav-tabs {
@@ -1036,11 +1226,33 @@ body {
     word-break: break-word;
     max-width: none;
     padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-top: none;
   }
 
   .data-table th {
     padding: 0.5rem;
     font-size: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-bottom: 2px solid var(--border-color);
+  }
+
+  /* Simple table mobile responsiveness */
+  .simple-table td {
+    white-space: normal;
+    word-wrap: break-word;
+    word-break: break-word;
+    max-width: none;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-top: none;
+  }
+
+  .simple-table th {
+    padding: 0.5rem;
+    font-size: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-bottom: 2px solid var(--border-color);
   }
 
   /* Adjust column widths for mobile */
@@ -1053,6 +1265,12 @@ body {
   .data-table th:nth-child(7) { min-width: 100px; }
   .data-table th:nth-child(8) { min-width: 100px; }
   .data-table th:nth-child(9) { width: 80px; }
+
+  /* Simple table column widths for mobile */
+  .simple-table th:nth-child(1) { min-width: 100px; } /* Program */
+  .simple-table th:nth-child(2) { min-width: 120px; } /* Connected To */
+  .simple-table th:nth-child(3) { width: 60px; } /* Port */
+  .simple-table th:nth-child(4) { width: 70px; } /* Protocol */
 }
 
 /* Dark mode support */
@@ -1262,6 +1480,18 @@ body {
   min-width: 120px;
 }
 
+@media (max-width: 768px) {
+  #autoRefreshToggle {
+    min-width: auto;
+    flex: 1;
+  }
+  
+  #refreshInterval {
+    min-width: auto;
+    flex: 1;
+  }
+}
+
 /* Enhanced filter layout for auto-refresh controls */
 .filters {
   flex-wrap: wrap;
@@ -1276,6 +1506,26 @@ body {
   align-self: center;
   min-width: 70px;
   text-align: left;
+}
+
+/* Filter action buttons container */
+.filter-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Additional mobile adjustments for filter actions */
+@media (max-width: 480px) {
+  .filter-actions {
+    gap: 0.25rem;
+  }
+  
+  .filter-actions .btn {
+    font-size: 0.8rem;
+    padding: 0.4rem 0.8rem;
+  }
 }
 @media (prefers-color-scheme: dark) {
   .refresh-info { color: #64748b; }
