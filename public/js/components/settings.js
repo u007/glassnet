@@ -220,7 +220,8 @@ class Settings {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.innerHTML = `
-      <div>${message}</div>
+      <div class="toast-content">${message}</div>
+      <button class="toast-close" onclick="this.parentElement.remove()">×</button>
     `;
 
     container.appendChild(toast);

@@ -296,12 +296,13 @@ class GlassNetApp {
   /**
    * Show global notification
    */
-  showNotification(message, type = 'info', duration = 5000) {
+  showNotification(message, type = 'info', duration = 3000) {
     const container = document.getElementById('toastContainer');
     const notification = document.createElement('div');
     notification.className = `toast ${type}`;
     notification.innerHTML = `
-      <div>${message}</div>
+      <div class="toast-content">${message}</div>
+      <button class="toast-close" onclick="this.parentElement.remove()">×</button>
     `;
 
     container.appendChild(notification);
